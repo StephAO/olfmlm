@@ -17,7 +17,7 @@
 
 import copy
 import torch
-import data_utils
+from . import data_utils
 
 
 class DataConfig:

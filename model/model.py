@@ -54,24 +54,9 @@ class BertModel(torch.nn.Module):
                 fp32_embedding=args.fp32_embedding,
                 layernorm_epsilon=args.layernorm_epsilon)
         else:
-            if args.intermediate_size is None:
-                intermediate_size = 4 * args.hidden_size
-            else:
-                intermediate_size = args.intermediate_size
-            self.config = BertConfig(
-                tokenizer.num_tokens,
-                hidden_size=args.hidden_size,
-                num_hidden_layers=args.num_layers,
-                num_attention_heads=args.num_attention_heads,
-                intermediate_size=intermediate_size,
-                hidden_dropout_prob=args.hidden_dropout,
-                attention_probs_dropout_prob=args.attention_dropout,
-                max_position_embeddings=args.max_position_embeddings,
-                type_vocab_size=tokenizer.num_type_tokens,
-                fp32_layernorm=args.fp32_layernorm,
-                fp32_embedding=args.fp32_embedding,
-                fp32_tokentypes=args.fp32_tokentypes,
-                layernorm_epsilon=args.layernorm_epsilon)
+            if args.bert_config_file is None:
+                raise ValueError("If not using a pretrained_bert, please specify a bert config file")
+            self.config = BertConfig(args.bert_config_file)
             self.model = BertForPreTraining(self.config)
 
     def forward(self, input_tokens, token_type_ids=None,
