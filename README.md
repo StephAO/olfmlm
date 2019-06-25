@@ -1,4 +1,14 @@
-Combines https://github.com/NVIDIA/Megatron-LM/commits/master (commit 0399d32c75b4719c89b91c18a173d05936112036) and https://github.com/nyu-mll/jiant/commits/master (commit 14d9e3d294b6cb4a29b70325b2b993d5926fe668) to get a BERT repo from pretraining to evaluation.
+Combines  
+https://github.com/NVIDIA/Megatron-LM/commits/master (commit 0399d32c75b4719c89b91c18a173d05936112036)  
+and  
+https://github.com/nyu-mll/jiant/commits/master (commit 14d9e3d294b6cb4a29b70325b2b993d5926fe668)  
+to get a BERT repo from pretraining to evaluation.  
+
+To run pretraining on slurm (from outside this directory):  
+`srun --gres=gpu:1 -c 8 --mem=12G -p gpu bash Megatron-LM/scripts/pretrain_bert.sh > output.txt &`  
+
+To run evaluation on slurm (from outside this directory):  
+`srun --gres=gpu:1 -c 8 --mem=12G -p gpu python3 -m Megatron-LM.evaluate.main --config_file test_bert.conf &`
 
 # Setup
 We officially support only python3.6.
