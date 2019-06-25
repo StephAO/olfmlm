@@ -1,4 +1,4 @@
-Megatron is a large, powerful transformer. This repo is for ongoing research on training large, powerful transformer language models at scale. Currently, we support multinode training of [BERT](https://arxiv.org/pdf/1810.04805.pdf) in mixed precision. Our codebase is capable of training BERT Large on 64 V100 GPUs in 3 days. We achieved a final language modeling perplexity of 3.15 and SQuAD F1-score of 90.7.
+Combines https://github.com/NVIDIA/Megatron-LM/commits/master (commit 0399d32c75b4719c89b91c18a173d05936112036) and https://github.com/nyu-mll/jiant/commits/master (commit 14d9e3d294b6cb4a29b70325b2b993d5926fe668) to get a BERT repo from pretraining to evaluation.
 
 # Setup
 We officially support only python3.6.
