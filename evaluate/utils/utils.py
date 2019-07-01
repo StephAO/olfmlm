@@ -68,8 +68,6 @@ def load_model_state(model, state_path, gpu_id, skip_task_models=[], strict=True
         "Can't skip task models while also strictly loading task models. Something is wrong.",
     )
     ms = model.state_dict()
-    print(ms['sent_encoder._text_field_embedder.model.encoder.layer.0.attention.self.query.bias'])
-    print(model_state['sent_encoder._text_field_embedder.model.encoder.layer.0.attention.self.query.bias'])
 
     for name, param in model.named_parameters():
         # Make sure no trainable params are missing.
@@ -96,8 +94,6 @@ def load_model_state(model, state_path, gpu_id, skip_task_models=[], strict=True
 
     model.load_state_dict(model_state, strict=False)
     model_state_2 = model.state_dict()
-    print("Model == model?", model_state == model_state_2)
-    print(model_state_2['sent_encoder._text_field_embedder.model.encoder.layer.0.attention.self.query.bias'])
     logging.info("Loaded model state from %s", state_path)
 
 

@@ -3,8 +3,8 @@
 RANK=0
 WORLD_SIZE=1
 
-python3 -m Megatron-LM.pretrain_bert \
-    --batch-size 2 \
+python3 -m sentence-encoders.pretrain_bert \
+    --batch-size 32 \
     --tokenizer-type BertWordPieceTokenizer \
     --cache-dir cache_dir \
     --tokenizer-model-type bert-base-uncased \
@@ -16,14 +16,14 @@ python3 -m Megatron-LM.pretrain_bert \
     --lazy-loader \
     --max-preds-per-seq 80 \
     --seq-length 128 \
-    --train-iters 10000 \
+    --train-iters 50000 \
     --lr 0.0001 \
     --lr-decay-style linear \
-    --lr-decay-iters 990000 \
     --warmup .01 \
     --weight-decay 1e-2 \
     --clip-grad 1.0 \
     --num-workers 2 \
-    --epochs 10 \
+    --epochs 3 \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
     --save /h/stephaneao/trained_berts/ 
+    #TODO --lr-decay-iters <-- come back to this later
