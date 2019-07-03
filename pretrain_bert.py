@@ -56,19 +56,8 @@ def get_optimizer(model, args):
     # Build parameter groups (weight decay and non-decay).
     while isinstance(model, DDP):
         model = model.module
-    layers = model.model.bert.encoder.layer
-    pooler = model.model.bert.pooler
-    lmheads = model.model.cls.predictions
-    nspheads = model.model.cls.seq_relationship
-    embeddings = model.model.bert.embeddings
-    param_groups = []
-    param_groups += list(get_params_for_weight_decay_optimization(layers))
-    param_groups += list(get_params_for_weight_decay_optimization(pooler))
-    param_groups += list(get_params_for_weight_decay_optimization(nspheads))
-    param_groups += list(get_params_for_weight_decay_optimization(embeddings))
-    param_groups += list(get_params_for_weight_decay_optimization(
-        lmheads.transform))
-    param_groups[1]['params'].append(lmheads.bias)
+
+    param_groups = model.get_params()
 
     # Use Adam.
     optimizer = Adam(param_groups,

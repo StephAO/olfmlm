@@ -18,9 +18,15 @@
 import torch
 
 from .modeling import BertConfig
-from .modeling import BertForPreTraining
+from .modeling import BertForPreTraining as BERT
 from .modeling import BertLayerNorm
 
+from .new_models import BertForPreTraining as SE
+
+sentence_encoders = {
+    "BERT" : BERT,
+    "SE" : SE
+}
 
 def get_params_for_weight_decay_optimization(module):
 
@@ -45,19 +51,21 @@ def get_params_for_weight_decay_optimization(module):
 class BertModel(torch.nn.Module):
 
     def __init__(self, tokenizer, args):
+
         super(BertModel, self).__init__()
-        if args.pretrained_bert:
-            self.model = BertForPreTraining.from_pretrained(
-                args.tokenizer_model_type,
-                cache_dir=args.cache_dir,
-                fp32_layernorm=args.fp32_layernorm,
-                fp32_embedding=args.fp32_embedding,
-                layernorm_epsilon=args.layernorm_epsilon)
-        else:
-            if args.bert_config_file is None:
-                raise ValueError("If not using a pretrained_bert, please specify a bert config file")
-            self.config = BertConfig(args.bert_config_file)
-            self.model = BertForPreTraining(self.config)
+        # if args.pretrained_bert:
+        #     self.model = BertForPreTraining.from_pretrained(
+        #         args.tokenizer_model_type,
+        #         cache_dir=args.cache_dir,
+        #         fp32_layernorm=args.fp32_layernorm,
+        #         fp32_embedding=args.fp32_embedding,
+        #         layernorm_epsilon=args.layernorm_epsilon)
+        # else:
+        if args.bert_config_file is None:
+            raise ValueError("If not using a pretrained_bert, please specify a bert config file")
+        self.config = BertConfig(args.bert_config_file)
+        self.model = sentence_encoders["SE"](self.config) # TODO change to args
+        self.original_bert = False # TODO change to args.sentence_encoders == "BERT"
 
     def forward(self, input_tokens, token_type_ids=None,
                 attention_mask=None, checkpoint_activations=False):
@@ -71,3 +79,19 @@ class BertModel(torch.nn.Module):
 
     def load_state_dict(self, state_dict, strict=True):
         return self.model.load_state_dict(state_dict, strict=strict)
+
+    def get_params(self):
+        param_groups = []
+        param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
+        param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
+        param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
+        if self.original_bert:
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.cls.seq_relationship))
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.cls.predictions.transform))
+            param_groups[1]['params'].append(self.model.cls.predictions.lmheads.bias)
+        else:
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.nsp.seq_relationship))
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
+            param_groups[1]['params'].append(self.model.lm.predictions.lmheads.bias)
+
+        return param_groups

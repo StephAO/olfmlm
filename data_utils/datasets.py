@@ -839,7 +839,7 @@ class bert_split_sentences_dataset(data.Dataset):
 
         return tokens_a, tokens_b, is_random_next
 
-    def truncate_seq_pair(self, a, max_seq_len, rng):
+    def truncate_seq(self, a, max_seq_len, rng):
         """
         Truncate sequence pair according to original BERT implementation:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
