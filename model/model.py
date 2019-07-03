@@ -67,11 +67,12 @@ class BertModel(torch.nn.Module):
         self.model = sentence_encoders["SE"](self.config) # TODO change to args
         self.original_bert = False # TODO change to args.sentence_encoders == "BERT"
 
-    def forward(self, input_tokens, token_type_ids=None,
-                attention_mask=None, checkpoint_activations=False):
-        return self.model(
-            input_tokens, token_type_ids, attention_mask,
-            checkpoint_activations=checkpoint_activations)
+    def forward(self, input_tokens, token_type_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
+        if self.original_bert:
+            r = self.model(input_tokens, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
+        else:
+            r = self.model(input_tokens, first_pass, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
+        return r
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):
         return self.model.state_dict(destination=destination, prefix=prefix,
@@ -88,10 +89,10 @@ class BertModel(torch.nn.Module):
         if self.original_bert:
             param_groups += list(get_params_for_weight_decay_optimization(self.model.cls.seq_relationship))
             param_groups += list(get_params_for_weight_decay_optimization(self.model.cls.predictions.transform))
-            param_groups[1]['params'].append(self.model.cls.predictions.lmheads.bias)
+            param_groups[1]['params'].append(self.model.cls.predictions.bias)
         else:
             param_groups += list(get_params_for_weight_decay_optimization(self.model.nsp.seq_relationship))
             param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
-            param_groups[1]['params'].append(self.model.lm.predictions.lmheads.bias)
+            param_groups[1]['params'].append(self.model.lm.predictions.bias)
 
         return param_groups

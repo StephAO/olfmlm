@@ -185,8 +185,8 @@ def forward_step(data, model, criterion, args):
         for sent in ['a', 'b']:
             tokens, loss_mask, lm_labels, padding_mask = batch[sent]
             # Forward model.
-            lm_scores, nsp_scores = model(tokens, first_pass, attention_mask=1 - padding_mask,
-                                          checkpoint_activations=args.checkpoint_activations)
+            lm_scores, nsp_scores = model(tokens, attention_mask=1 - padding_mask,
+                                          checkpoint_activations=args.checkpoint_activations, first_pass=first_pass)
 
             losses = criterion(lm_scores.view(-1, args.data_size).contiguous().float(),
                                lm_labels.contiguous().view(-1).contiguous())
