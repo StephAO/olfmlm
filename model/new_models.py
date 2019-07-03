@@ -2,6 +2,16 @@ import torch
 from torch.nn import CrossEntropyLoss
 from .modeling import *
 
+class BertNSPHead(nn.Module):
+    def __init__(self, config):
+        super(BertNSPHead, self).__init__()
+        self.seq_relationship = nn.Linear(config.hidden_size * 2, 2)
+
+    def forward(self, pooled_output):
+        seq_relationship_score = self.seq_relationship(pooled_output)
+        return seq_relationship_score
+
+
 class BertForPreTraining(PreTrainedBertModel):
     """BERT model with pre-training heads.
     This module comprises the BERT model followed by the two pre-training heads:
@@ -56,7 +66,7 @@ class BertForPreTraining(PreTrainedBertModel):
         super(BertForPreTraining, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.nsp = BertOnlyNSPHead(config)
+        self.nsp = BertNSPHead(config)
         self.apply(self.init_bert_weights)
         self.first_pooled_output = None
 
@@ -64,9 +74,7 @@ class BertForPreTraining(PreTrainedBertModel):
         sequence_output, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
                                                    output_all_encoded_layers=False, checkpoint_activations=checkpoint_activations)
 
-        loss_fct = CrossEntropyLoss(ignore_index=-1)
         lm_scores = self.lm(sequence_output)
-        # masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), masked_lm_labels.view(-1))
 
         if first_pass:
             self.first_pooled_output = pooled_output
@@ -75,9 +83,5 @@ class BertForPreTraining(PreTrainedBertModel):
         # TODO try difference, dot product, combination
         nsp_classifier_features = torch.cat((self.first_pooled_output, pooled_output), 1)
         nsp_scores = self.nsp(nsp_classifier_features)
-
-        # nsp_loss = loss_fct(nsp_scores.view(-1, 2), next_sentence_label.view(-1))
-        #
-        # total_loss = (self.first_masked_lm_loss + masked_lm_loss) / 2.0 + nsp_loss
 
         return lm_scores, nsp_scores

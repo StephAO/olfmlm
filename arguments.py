@@ -30,6 +30,8 @@ def add_model_config_args(parser):
                        'of initializing from scratch. See '
                        '--tokenizer-model-type to specify which pretrained '
                        'BERT model to use')
+    group.add_argument('--model_type', type=str, default='bert',
+                       help="Sentence encoder to use, one of ['bert', ernie'] ")
     group.add_argument('--attention-dropout', type=float, default=0.1,
                        help='dropout probability for attention weights')
     group.add_argument('--num-attention-heads', type=int, default=16,

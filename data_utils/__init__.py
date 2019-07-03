@@ -58,10 +58,10 @@ def supported_corpus(corpus_name):
     """checks if corpus name is defined in `corpora.py`"""
     return corpus_name in corpora.NAMED_CORPORA
 
-def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=None, split=[1.],
-                delim=',', loose=False, binarize_sent=False, drop_unlabeled=False, tokenizer=None,
-                tokenizer_type='CharacterLevelTokenizer', tokenizer_model_path=None, vocab_size=None,
-                model_type='bpe', pad_token=0, character_converage=1.0, non_binary_cols=None, **kwargs):
+def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=None, split=[1.], delim=',', loose=False,
+                 binarize_sent=False, drop_unlabeled=False, tokenizer=None, tokenizer_type='CharacterLevelTokenizer',
+                 tokenizer_model_path=None, vocab_size=None, model_type='bpe', pad_token=0, character_converage=1.0,
+                 non_binary_cols=None, enc_model_type='bert', **kwargs):
     """function to create datasets+tokenizers for common options"""
     if isinstance(process_fn, str):
         process_fn = eval(process_fn)
@@ -101,6 +101,7 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
                                     pad_token, character_converage, **kwargs)
 
     ds_type = ''
+    ds_subtype = bert_sentencepair_dataset if enc_model_type == 'bert' else bert_split_sentences_dataset
     if 'ds_type' in kwargs:
         ds_type = kwargs['ds_type']
     ds.SetTokenizer(tokenizer)
@@ -109,9 +110,9 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
         ds = split_ds(ds, split)
         if ds_type.lower() == 'bert':
             presplit_sentences = kwargs['presplit_sentences'] if 'presplit_sentences' in kwargs else False
-            ds = [bert_split_sentences_dataset(d, max_seq_len=seq_length, presplit_sentences=presplit_sentences) for d in ds]
+            ds = [ds_subtype(d, max_seq_len=seq_length, presplit_sentences=presplit_sentences) for d in ds]
     else:
         if ds_type.lower() == 'bert':
             presplit_sentences = kwargs['presplit_sentences'] if 'presplit_sentences' in kwargs else False
-            ds = bert_split_sentences_dataset(ds, max_seq_len=seq_length, presplit_sentences=presplit_sentences)
+            ds = ds_subtype(ds, max_seq_len=seq_length, presplit_sentences=presplit_sentences)
     return ds, tokenizer

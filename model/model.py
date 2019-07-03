@@ -18,14 +18,14 @@
 import torch
 
 from .modeling import BertConfig
-from .modeling import BertForPreTraining as BERT
+from .modeling import BertForPreTraining as Bert
 from .modeling import BertLayerNorm
 
-from .new_models import BertForPreTraining as SE
+from .new_models import BertForPreTraining as Ernie
 
 sentence_encoders = {
-    "BERT" : BERT,
-    "SE" : SE
+    "bert" : Bert,
+    "ernie" : Ernie
 }
 
 def get_params_for_weight_decay_optimization(module):
@@ -64,8 +64,8 @@ class BertModel(torch.nn.Module):
         if args.bert_config_file is None:
             raise ValueError("If not using a pretrained_bert, please specify a bert config file")
         self.config = BertConfig(args.bert_config_file)
-        self.model = sentence_encoders["SE"](self.config) # TODO change to args
-        self.original_bert = False # TODO change to args.sentence_encoders == "BERT"
+        self.model = sentence_encoders[args.model_type](self.config) # TODO change to args
+        self.original_bert = args.model_type == "bert"
 
     def forward(self, input_tokens, token_type_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
         if self.original_bert:

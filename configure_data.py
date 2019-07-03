@@ -143,7 +143,9 @@ def make_loaders(args):
         'model_type': args.tokenizer_model_type,
         'cache_dir': args.cache_dir,
         'max_preds_per_seq': args.max_preds_per_seq,
-        'presplit_sentences': args.presplit_sentences}
+        'presplit_sentences': args.presplit_sentences,
+        'enc_model_type': args.model_type
+    }
 
     eval_set_args = copy.copy(data_set_args)
     eval_set_args['split'] = [1.]

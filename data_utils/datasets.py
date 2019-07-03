@@ -740,10 +740,10 @@ class bert_split_sentences_dataset(data.Dataset):
         sample['is_random'] = int(is_random_next)
         # A #
         tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample['a'] = {'text': np.array(tokens[0]), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
+        sample['a'] = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
         # B #
         tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(b, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample['b'] = {'text': np.array(tokens[0]), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
+        sample['b'] = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
         return sample
 
     def sentence_split(self, document):
