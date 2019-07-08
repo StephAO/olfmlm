@@ -139,20 +139,23 @@ def get_batch(data):
             batch[sent] = (tokens, loss_mask, lm_labels, padding_mask)
     else:
         tokens = torch.autograd.Variable(data['text'].long())
-        types = torch.autograd.Variable(data['types'].long())
-        next_sentence = torch.autograd.Variable(data['is_random'].long())
+        sent_key = 'is_random' if 'is_random' in data else 'is_corrupted'
+        sentence_label = torch.autograd.Variable(data[sent_key].long())
         loss_mask = torch.autograd.Variable(data['mask'].float())
         lm_labels = torch.autograd.Variable(data['mask_labels'].long())
         padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
+        types = None
+        if 'types' in data:
+            types = torch.autograd.Variable(data['types'].long())
+            types = types.cuda()
         # Move to cuda
         tokens = tokens.cuda()
-        types = types.cuda()
-        next_sentence = next_sentence.cuda()
+        sentence_label = sentence_label.cuda()
         loss_mask = loss_mask.cuda()
         lm_labels = lm_labels.cuda()
         padding_mask = padding_mask.cuda()
 
-        batch = (tokens, types, next_sentence, loss_mask, lm_labels, padding_mask)
+        batch = (tokens, types, sentence_label, loss_mask, lm_labels, padding_mask)
 
     return ss, batch
 
@@ -165,18 +168,19 @@ def forward_step(data, model, criterion, args):
 
     if not split_sentences:
 
-        tokens, types, next_sentence, loss_mask, lm_labels, padding_mask = batch
+        tokens, types, sentence_label, loss_mask, lm_labels, padding_mask = batch
         # Forward model.
         output, nsp = model(tokens, types, 1-padding_mask,
                             checkpoint_activations=args.checkpoint_activations)
         nsp_loss = criterion(nsp.view(-1, 2).contiguous().float(),
-                             next_sentence.view(-1).contiguous()).mean()
+                             sentence_label.view(-1).contiguous()).mean()
         losses = criterion(output.view(-1, args.data_size).contiguous().float(),
                            lm_labels.contiguous().view(-1).contiguous())
 
         if args.model_type == "corrupt":
-            print(next_sentence)
-            exit(0)
+            # Don't learn masked language from corrupted sentences
+            lm_loss_mask = 1 - np.array(sentence_label)
+            losses = np.expand_dims(lm_loss_mask, 1) * losses
 
         loss_mask = loss_mask.contiguous()
         loss_mask = loss_mask.view(-1)

@@ -25,5 +25,6 @@ python3 -m sentence-encoders.pretrain_bert \
     --num-workers 2 \
     --epochs 2 \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
-    --save /h/stephaneao/trained_berts/ 
+    --save /h/stephaneao/trained_berts/ \
+    --model-type 'corrupt'
     #TODO --lr-decay-iters <-- come back to this later

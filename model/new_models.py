@@ -5,7 +5,7 @@ from .modeling import *
 class BertNSPHead(nn.Module):
     def __init__(self, config):
         super(BertNSPHead, self).__init__()
-        self.seq_relationship = nn.Linear(config.hidden_size * 2, 2)
+        self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, pooled_output):
         seq_relationship_score = self.seq_relationship(pooled_output)
@@ -63,12 +63,16 @@ class Split(PreTrainedBertModel):
     ```
     """
     def __init__(self, config):
-        super(BertForPreTraining, self).__init__(config)
+        super(Split, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.nsp = BertNSPHead(config)
         self.apply(self.init_bert_weights)
         self.first_pooled_output = None
+        self.config = config
+
+    def normalize(self, x):
+        return (x - torch.mean(x, 1, keepdim=True)) / torch.std(x, 1, keepdim=True)
 
     def forward(self, input_ids, first_pass, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
         sequence_output, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
@@ -81,7 +85,10 @@ class Split(PreTrainedBertModel):
             return lm_scores, 0.0
 
         # TODO try difference, dot product, combination
-        nsp_classifier_features = torch.cat((self.first_pooled_output, pooled_output), 1)
+        # diff = pooled_output - self.first_pooled_output
+        # dot_product = torch.bmm(self.first_pooled_output.view(-1, 1, self.config.hidden_size), pooled_output.view(-1, self.config.hidden_size, 1)).view(-1, 1)
+        product = self.first_pooled_output * pooled_output
+        nsp_classifier_features = self.normalize(product)  #torch.cat((self.first_pooled_output, pooled_output), 1)
         nsp_scores = self.nsp(nsp_classifier_features)
 
         return lm_scores, nsp_scores
@@ -138,7 +145,7 @@ class Corrupt(PreTrainedBertModel):
     ```
     """
     def __init__(self, config):
-        super(BertForPreTraining, self).__init__(config)
+        super(Corrupt, self).__init__(config)
         self.bert = BertModel(config)
         self.cls = BertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)

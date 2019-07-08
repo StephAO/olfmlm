@@ -944,7 +944,7 @@ class bert_corrupt_sentences_dataset(data.Dataset):
         self.presplit_sentences = presplit_sentences
 
         self.corrupt_per_sentence = 0.15
-        self.corrupt_p = 0.25
+        self.corrupt_p = 0.3
 
     def __len__(self):
         return self.dataset_size
@@ -960,9 +960,9 @@ class bert_corrupt_sentences_dataset(data.Dataset):
             short_seq = True
         target_seq_length *= 2
         # get sentence pair and label
-        is_random_next = None
+        corrupted = None
 
-        while (is_random_next is None) or (len(a) < 1):
+        while (corrupted is None) or (len(a) < 1):
             a, corrupted = self.create_sentence(target_seq_length, rng)
         # truncate sentences to max_seq_len
         a = self.truncate_seq(a, self.max_seq_len, rng)
@@ -1031,11 +1031,10 @@ class bert_corrupt_sentences_dataset(data.Dataset):
 
         corrupted = False
         if rng.random() < self.corrupt_p:
-            corrupted = True
             if rng.random() < 0.5:
-                self.corrupt_permute(tokens, rng)
+                tokens, corrupted = self.corrupt_permute(tokens, rng)
             else:
-                self.corrupt_replace(tokens, rng)
+                tokens, corrupted = self.corrupt_replace(tokens, rng)
 
         return tokens, corrupted
 
@@ -1060,7 +1059,7 @@ class bert_corrupt_sentences_dataset(data.Dataset):
         return tokens_a
 
     def corrupt_replace(self, tokens, rng):
-        cand_indices = [idx + 1 for idx in range(len(tokens))]
+        cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
 
         num_to_predict = max(1, int(round(len(tokens) * self.corrupt_per_sentence)))
@@ -1078,7 +1077,7 @@ class bert_corrupt_sentences_dataset(data.Dataset):
             return tokens, False
 
         for i in range(num_to_predict):
-            id1, id2 = rng.choice(len(tokens), size = 2, replace=False)
+            id1, id2 = rng.sample(list(range(len(tokens))), 2)
             tokens[id1], tokens[id2] = tokens[id2], tokens[id1]
 
         return tokens, True
