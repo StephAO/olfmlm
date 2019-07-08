@@ -173,6 +173,11 @@ def forward_step(data, model, criterion, args):
                              next_sentence.view(-1).contiguous()).mean()
         losses = criterion(output.view(-1, args.data_size).contiguous().float(),
                            lm_labels.contiguous().view(-1).contiguous())
+
+        if args.model_type == "corrupt":
+            print(next_sentence)
+            exit(0)
+
         loss_mask = loss_mask.contiguous()
         loss_mask = loss_mask.view(-1)
         lm_loss = torch.sum(

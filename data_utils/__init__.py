@@ -17,7 +17,7 @@ import os
 import math
 
 from .samplers import DistributedBatchSampler
-from .datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, bert_sentencepair_dataset, bert_split_sentences_dataset
+from .datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, bert_sentencepair_dataset, bert_split_sentences_dataset, bert_corrupt_sentences_dataset
 from .lazy_loader import exists_lazy, make_lazy, lazy_array_loader
 from .tokenization import Tokenization, CommandToken, Tokenizer, CharacterLevelTokenizer, BertWordPieceTokenizer, make_tokenizer
 from . import corpora
@@ -25,6 +25,12 @@ from . import corpora
 TRAIN_DATA = 0
 VAL_DATA = 1
 TEST_DATA = 2
+
+dataset_types = {
+    'bert': bert_sentencepair_dataset,
+    'split': bert_split_sentences_dataset,
+    'corrupt': bert_corrupt_sentences_dataset
+}
 
 def should_split(split):
     """
@@ -101,7 +107,7 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
                                     pad_token, character_converage, **kwargs)
 
     ds_type = ''
-    ds_subtype = bert_sentencepair_dataset if enc_model_type == 'bert' else bert_split_sentences_dataset
+    ds_subtype = dataset_types[enc_model_type]
     if 'ds_type' in kwargs:
         ds_type = kwargs['ds_type']
     ds.SetTokenizer(tokenizer)
