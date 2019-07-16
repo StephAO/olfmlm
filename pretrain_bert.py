@@ -179,8 +179,8 @@ def forward_step(data, model, criterion, args):
 
         if args.model_type == "corrupt":
             # Don't learn masked language from corrupted sentences
-            lm_loss_mask = 1 - np.array(sentence_label)
-            losses = np.expand_dims(lm_loss_mask, 1) * losses
+            lm_loss_mask = torch.FloatTensor(1 - np.array(sentence_label)).unsqueeze(1).cuda()
+            losses = lm_loss_mask * losses
 
         loss_mask = loss_mask.contiguous()
         loss_mask = loss_mask.view(-1)

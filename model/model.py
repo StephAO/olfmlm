@@ -69,7 +69,7 @@ class BertModel(torch.nn.Module):
         self.model_type = args.model_type
 
     def forward(self, input_tokens, token_type_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
-        if self.model_type == "bert":
+        if self.model_type != "split":
             r = self.model(input_tokens, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
         else:
             r = self.model(input_tokens, first_pass, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
