@@ -15,6 +15,7 @@
 
 """Pretrain BERT"""
 
+from comet_ml import Experiment
 import os
 import random
 import numpy as np
@@ -264,8 +265,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, args):
     return lm_loss_reduced, nsp_loss_reduced, skipped_iter
 
 
-def train_epoch(epoch, model, optimizer, train_data,
-                lr_scheduler, criterion, timers, args):
+def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args):
     """Train one full epoch."""
 
     # Turn on training mode which enables dropout.
@@ -319,6 +319,13 @@ def train_epoch(epoch, model, optimizer, train_data,
             print(log_string, flush=True)
             total_nsp_loss = 0.0
             total_lm_loss = 0.0
+
+            experiment.set_step(iteration)
+            metrics['learning_rate'] = learning_rate
+            metrics['lm_loss'] = avg_lm_loss
+            metrics['nsp_loss'] = avg_nsp_loss
+
+            experiment.log_metrics(metrics)
 
         # Checkpointing
         if args.save and args.save_iters and iteration % args.save_iters == 0:
@@ -411,6 +418,13 @@ def main():
     # Arguments.
     args = get_args()
 
+    experiment = Experiment(api_key='1jl4lQOnJsVdZR6oekS6WO5FI',
+                           project_name=args.model_type,
+                           auto_param_logging=False, auto_metric_logging=False,
+                           disabled=(not args.track_results))
+    experiment.log_parameter(vars(args))
+    metrics = {}
+
     # Pytorch distributed.
     initialize_distributed(args)
 
@@ -447,7 +461,7 @@ def main():
             timers('epoch time').start()
             iteration, skipped = train_epoch(epoch, model, optimizer,
                                              train_data, lr_scheduler,
-                                             criterion, timers, args)
+                                             criterion, timers, experiment, metrics, args)
             elapsed_time = timers('epoch time').elapsed()
             total_iters += iteration
             skipped_iters += skipped

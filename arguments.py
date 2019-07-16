@@ -19,6 +19,15 @@ import argparse
 import os
 import torch
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def add_model_config_args(parser):
     """Model arguments"""
@@ -62,6 +71,9 @@ def add_training_args(parser):
 
     group = parser.add_argument_group('train', 'training configurations')
 
+    group.add_argument('--track_results', type=str2bool, nargs='?',
+                        const=True, default=False,
+                        help='Tracks results on comet.')
     group.add_argument('--batch-size', type=int, default=4,
                        help='Data Loader batch size')
     group.add_argument('--weight-decay', type=float, default=0.01,
