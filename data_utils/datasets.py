@@ -636,7 +636,7 @@ class bert_dataset(data.Dataset):
             while random_start_a < len(doc_a):
                 sentence = doc_a[random_start_a]
                 sentence, sentence_types = self.sentence_tokenize(sentence, 0, random_start_a == 0,
-                                                                  random_start_a == len(doc_a), types=True)
+                                                                  random_start_a == len(doc_a))
                 curr_strs.append(sentence)
                 curr_str_types.append(sentence_types)
                 curr_len += len(sentence)
@@ -676,7 +676,7 @@ class bert_dataset(data.Dataset):
                     while random_start_b < len(doc_b):
                         sentence_b = doc_b[random_start_b]
                         new_b_tokens, new_b_types = self.sentence_tokenize(sentence_b, 1, random_start_b == 0,
-                                                                           random_start_b == len(doc_b), types=True)
+                                                                           random_start_b == len(doc_b))
                         b_len += len(new_b_tokens)
                         tokens_b.extend(new_b_tokens)
                         token_types_b.extend(new_b_types)
@@ -773,10 +773,10 @@ class bert_split_sentences_dataset(bert_dataset):
         sample['split_sentences'] = True
         sample['is_random'] = int(is_random_next)
         # A #
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
+        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
         sample['a'] = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
         # B #
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(b, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
+        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(b, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
         sample['b'] = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
         return sample
 
@@ -821,7 +821,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         a = self.truncate_seq(a, self.max_seq_len, rng)
 
         # Mask and pad sentence pair
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
+        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
         sample = {'text': np.array(tokens), 'is_corrupted': int(corrupted), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
 
         return sample
