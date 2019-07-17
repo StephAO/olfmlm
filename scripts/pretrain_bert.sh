@@ -27,4 +27,5 @@ python3 -m sentence-encoders.pretrain_bert \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
     --save /scratch/gobi1/stephaneao/trained_berts/bert/ \
     --model-type 'bert' \
-    --lr-decay-iters 225000
+    --lr-decay-iters 225000 \
+    --track-results True

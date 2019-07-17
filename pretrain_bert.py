@@ -175,12 +175,14 @@ def forward_step(data, model, criterion, args):
                             checkpoint_activations=args.checkpoint_activations)
         nsp_loss = criterion(nsp.view(-1, 2).contiguous().float(),
                              sentence_label.view(-1).contiguous()).mean()
+
         losses = criterion(output.view(-1, args.data_size).contiguous().float(),
                            lm_labels.contiguous().view(-1).contiguous())
 
-        if args.model_type == "corrupt":
+        if args.model_type == "corrupt":          
             # Don't learn masked language from corrupted sentences
             lm_loss_mask = torch.FloatTensor(1 - np.array(sentence_label)).unsqueeze(1).cuda()
+            lm_loss_mask = lm_loss_mask.repeat(1, args.seq_length).view(-1)
             losses = lm_loss_mask * losses
 
         loss_mask = loss_mask.contiguous()
@@ -422,7 +424,7 @@ def main():
                            project_name=args.model_type,
                            auto_param_logging=False, auto_metric_logging=False,
                            disabled=(not args.track_results))
-    experiment.log_parameter(vars(args))
+    experiment.log_parameters(vars(args))
     metrics = {}
 
     # Pytorch distributed.

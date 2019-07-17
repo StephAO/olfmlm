@@ -71,7 +71,7 @@ def add_training_args(parser):
 
     group = parser.add_argument_group('train', 'training configurations')
 
-    group.add_argument('--track_results', type=str2bool, nargs='?',
+    group.add_argument('--track-results', type=str2bool, nargs='?',
                         const=True, default=False,
                         help='Tracks results on comet.')
     group.add_argument('--batch-size', type=int, default=4,
