@@ -579,7 +579,7 @@ class bert_dataset(data.Dataset):
         Mask sequence pair for BERT training according to:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L338
         """
-        tokens_a, token_types_a = a
+        tokens_a, token_types_a = a if self.use_types else (a, None)
         len_a = len(tokens_a)
         if self.use_types:
             tokens_b, token_types_b = b
@@ -653,7 +653,8 @@ class bert_dataset(data.Dataset):
             token_types_a = []
             for j in range(num_a):
                 tokens_a.extend(curr_strs[j])
-                token_types_a.extend(curr_str_types[j])
+                if self.use_types:
+                    token_types_a.extend(curr_str_types[j])
 
             tokens_b = []
             token_types_b = []
@@ -679,7 +680,8 @@ class bert_dataset(data.Dataset):
                                                                            random_start_b == len(doc_b))
                         b_len += len(new_b_tokens)
                         tokens_b.extend(new_b_tokens)
-                        token_types_b.extend(new_b_types)
+                        if self.use_types:
+                            token_types_b.extend(new_b_types)
                         if len(tokens_b) >= target_b_length:
                             break
                         random_start_b = (random_start_b + 1)
@@ -687,7 +689,8 @@ class bert_dataset(data.Dataset):
                 is_random_next = False
                 for j in range(num_a, len(curr_strs)):
                     tokens_b.extend(curr_strs[j])
-                    token_types_b.extend(curr_str_types[j])
+                    if self.use_types:
+                        token_types_b.extend(curr_str_types[j])
 
         output_a = (tokens_a, token_types_a) if self.use_types else tokens_a
         output_b = (tokens_b, token_types_b) if self.use_types else tokens_b
@@ -914,7 +917,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
 
         num_to_delete = max(1, int(round(len(tokens) * self.corrupt_per_sentence)))
 
-        for idx in sorted(cand_indices[:num_to_delete]):
+        for idx in sorted(cand_indices[:num_to_delete], reverse=True):
             del tokens[idx]
 
         return tokens, True
