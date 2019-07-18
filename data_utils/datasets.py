@@ -921,3 +921,81 @@ class bert_corrupt_sentences_dataset(bert_dataset):
             del tokens[idx]
 
         return tokens, True
+
+class bert_rg_sentences_dataset(bert_dataset):
+    """
+    Dataset containing sentencepairs for BERT training. Each index corresponds to a randomly generated sentence pair.
+    Arguments:
+        ds (Dataset or array-like): data corpus to use for training
+        max_seq_len (int): maximum sequence length to use for a sentence pair
+        mask_lm_prob (float): proportion of tokens to mask for masked LM
+        max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
+        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
+        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
+
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(False, *args, **kwargs)
+
+    def __len__(self):
+        return self.dataset_size
+
+    def __getitem__(self, idx):
+        # get rng state corresponding to index (allows deterministic random pair)
+        rng = random.Random(idx)
+        # get seq length
+        target_seq_length = self.max_seq_len
+        short_seq = False
+        if rng.random() < self.short_seq_prob:
+            target_seq_length = rng.randint(2, target_seq_length)
+            short_seq = True
+        target_seq_length *= 2
+        # get sentence pair and label
+
+        a = []
+
+        while (len(a) < 1):
+            a = self.create_sentence(target_seq_length, rng)
+        # truncate sentences to max_seq_len
+        a = self.truncate_seq(a, self.max_seq_len, rng)
+
+        # Mask and pad sentence pair
+        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
+        sample = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
+
+        return sample
+
+    def create_sentence(self, target_seq_length, rng):
+        """
+        fetches a random sentencepair corresponding to rng state similar to
+        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
+        """
+        is_random_next = None
+
+        curr_strs = []
+        curr_len = 0
+
+        while curr_len < 1:
+            curr_len = 0
+            doc_a = None
+            while doc_a is None:
+                doc_a_idx = rng.randint(0, self.ds_len-1)
+                doc_a = self.sentence_split(self.get_doc(doc_a_idx))
+                if not doc_a:
+                    doc_a = None
+
+            random_start_a = rng.randint(0, len(doc_a)-1)
+            while random_start_a < len(doc_a):
+                sentence = doc_a[random_start_a]
+                sentence, _ = self.sentence_tokenize(sentence, 0, random_start_a == 0, random_start_a == len(doc_a))
+                curr_strs.append(sentence)
+                curr_len += len(sentence)
+                if random_start_a == len(doc_a) - 1 or curr_len >= target_seq_length:
+                    break
+                random_start_a = (random_start_a+1)
+
+        tokens = []
+        for j in range(len(curr_strs)):
+            tokens.extend(curr_strs[j])
+
+        return tokens

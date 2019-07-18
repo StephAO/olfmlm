@@ -140,18 +140,21 @@ def get_batch(data):
             batch[sent] = (tokens, loss_mask, lm_labels, padding_mask)
     else:
         tokens = torch.autograd.Variable(data['text'].long())
-        sent_key = 'is_random' if 'is_random' in data else 'is_corrupted'
-        sentence_label = torch.autograd.Variable(data[sent_key].long())
         loss_mask = torch.autograd.Variable(data['mask'].float())
         lm_labels = torch.autograd.Variable(data['mask_labels'].long())
         padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
+        # Optional data
         types = None
         if 'types' in data:
             types = torch.autograd.Variable(data['types'].long())
             types = types.cuda()
+        sentence_label = None
+        if 'is_random' in data or 'is_corrupted' in data:
+            sent_key = 'is_random' if 'is_random' in data else 'is_corrupted'
+            sentence_label = torch.autograd.Variable(data[sent_key].long())
+            sentence_label = sentence_label.cuda()
         # Move to cuda
         tokens = tokens.cuda()
-        sentence_label = sentence_label.cuda()
         loss_mask = loss_mask.cuda()
         lm_labels = lm_labels.cuda()
         padding_mask = padding_mask.cuda()
@@ -171,24 +174,27 @@ def forward_step(data, model, criterion, args):
 
         tokens, types, sentence_label, loss_mask, lm_labels, padding_mask = batch
         # Forward model.
-        output, nsp = model(tokens, types, 1-padding_mask,
+        mlm, sentence = model(tokens, types, 1-padding_mask,
                             checkpoint_activations=args.checkpoint_activations)
-        nsp_loss = criterion(nsp.view(-1, 2).contiguous().float(),
-                             sentence_label.view(-1).contiguous()).mean()
+        if args.model_type == "referential_game":
+            sentence_loss = sentence
+        else:
+            sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
+                                      sentence_label.view(-1).contiguous()).mean()
 
-        losses = criterion(output.view(-1, args.data_size).contiguous().float(),
+        mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
                            lm_labels.contiguous().view(-1).contiguous())
 
         if args.model_type == "corrupt":          
             # Don't learn masked language from corrupted sentences
             lm_loss_mask = torch.FloatTensor(1 - np.array(sentence_label)).unsqueeze(1).cuda()
             lm_loss_mask = lm_loss_mask.repeat(1, args.seq_length).view(-1)
-            losses = lm_loss_mask * losses
+            mlm_loss = lm_loss_mask * mlm_loss
 
         loss_mask = loss_mask.contiguous()
         loss_mask = loss_mask.view(-1)
         lm_loss = torch.sum(
-            losses * loss_mask.view(-1).float()) / loss_mask.sum()
+            mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
 
     else:
         next_sentence = batch['next_sentence']
@@ -197,25 +203,25 @@ def forward_step(data, model, criterion, args):
         for sent in ['a', 'b']:
             tokens, loss_mask, lm_labels, padding_mask = batch[sent]
             # Forward model.
-            lm_scores, nsp_scores = model(tokens, attention_mask=1 - padding_mask,
+            mlm, sentence = model(tokens, attention_mask=1 - padding_mask,
                                           checkpoint_activations=args.checkpoint_activations, first_pass=first_pass)
 
-            losses = criterion(lm_scores.view(-1, args.data_size).contiguous().float(),
+            mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
                                lm_labels.contiguous().view(-1).contiguous())
             loss_mask = loss_mask.contiguous()
             loss_mask = loss_mask.view(-1)
             lm_loss = torch.sum(
-                losses * loss_mask.view(-1).float()) / loss_mask.sum()
+                mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
 
             lm_losses.append(lm_loss)
 
             first_pass = False
 
         lm_loss = torch.mean(torch.stack(lm_losses))
-        nsp_loss = criterion(nsp_scores.view(-1, 2).contiguous().float(),
+        sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
                              next_sentence.view(-1).contiguous()).mean()
 
-    return lm_loss, nsp_loss
+    return lm_loss, sentence_loss
 
 
 def backward_step(optimizer, model, lm_loss, nsp_loss, args):
@@ -442,8 +448,6 @@ def main():
     # Model, optimizer, and learning rate.
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
-    
-    save_checkpoint("/h/stephaneao/trained_berts/random_init_model.pt", 0, 0, model, optimizer, lr_scheduler, args)
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:

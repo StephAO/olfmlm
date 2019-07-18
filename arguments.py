@@ -63,6 +63,7 @@ def add_model_config_args(parser):
                        'tokenization. This value will only be used when '
                        'creating a tokenizer')
     group.add_argument('--bert-config-file', type=str, default=None)
+    group.add_argument('--bert-small-config-file', type=str, default=None)
 
     return parser
 

@@ -4,7 +4,7 @@ RANK=0
 WORLD_SIZE=1
 
 python3 -m sentence-encoders.pretrain_bert \
-    --batch-size 16 \
+    --batch-size 32 \
     --tokenizer-type BertWordPieceTokenizer \
     --cache-dir cache_dir \
     --tokenizer-model-type bert-base-uncased \
@@ -24,7 +24,8 @@ python3 -m sentence-encoders.pretrain_bert \
     --clip-grad 1.0 \
     --num-workers 2 \
     --epochs 1 \
-    --bert-config-file /h/stephaneao/sentence-encoders/bert_config.json \
-    --save /scratch/gobi1/stephaneao/trained_berts/split/ \
-    --model-type 'split' \
+    --bert-config-file /h/stephaneao/trained_berts/config_file.json \
+    --bert-small-config-file /h/stephaneao/sentence-encoders/bert_small_config.json \
+    --save /scratch/gobi1/stephaneao/trained_berts/referential_game/ \
+    --model-type 'referential_game' \
     --track-results True

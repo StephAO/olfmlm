@@ -21,12 +21,13 @@ from .modeling import BertConfig
 from .modeling import BertForPreTraining as Bert
 from .modeling import BertLayerNorm
 
-from .new_models import Split, Corrupt
+from .new_models import Split, Corrupt, ReferentialGame
 
 sentence_encoders = {
     "bert" : Bert,
     "split" : Split,
-    "corrupt": Corrupt
+    "corrupt": Corrupt,
+    "referential_game": ReferentialGame
 }
 
 def get_params_for_weight_decay_optimization(module):
@@ -65,14 +66,19 @@ class BertModel(torch.nn.Module):
         if args.bert_config_file is None:
             raise ValueError("If not using a pretrained_bert, please specify a bert config file")
         self.config = BertConfig(args.bert_config_file)
-        self.model = sentence_encoders[args.model_type](self.config) # TODO change to args
+        model_args = [self.config]
+        if self.model_type == "referential_game":
+            self.small_config = BertConfig(args.bert_small_config_file)
+            model_args.extend(self.small_config)
+        self.model = sentence_encoders[args.model_type](*model_args)
         self.model_type = args.model_type
 
     def forward(self, input_tokens, token_type_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
-        if self.model_type != "split":
-            r = self.model(input_tokens, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
+        if self.model_type == "split":
+            r = self.model(input_tokens, first_pass, token_type_ids, attention_mask,
+                           checkpoint_activations=checkpoint_activations)
         else:
-            r = self.model(input_tokens, first_pass, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
+            r = self.model(input_tokens, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
         return r
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):

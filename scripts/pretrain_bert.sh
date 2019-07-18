@@ -16,7 +16,7 @@ python3 -m sentence-encoders.pretrain_bert \
     --lazy-loader \
     --max-preds-per-seq 80 \
     --seq-length 128 \
-    --train-iters 250000 \
+    --train-iters 100000 \
     --lr 0.0001 \
     --lr-decay-style linear \
     --warmup .01 \
@@ -27,5 +27,4 @@ python3 -m sentence-encoders.pretrain_bert \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
     --save /scratch/gobi1/stephaneao/trained_berts/bert/ \
     --model-type 'bert' \
-    --lr-decay-iters 225000 \
     --track-results True
