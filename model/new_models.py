@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
 from .modeling import *
@@ -94,9 +95,29 @@ class ReferentialGame(PreTrainedBertModel):
         self.apply(self.init_bert_weights)
 
     def cosine_similarity(self, a, b):
+        "taken from https://stackoverflow.com/questions/50411191/how-to-compute-the-cosine-similarity-in-pytorch-for-all-rows-in-a-matrix-with-re"
         a_norm = a / a.norm(dim=1)[:, None]
         b_norm = b / b.norm(dim=1)[:, None]
         return torch.mm(a_norm, b_norm.transpose(0, 1))
+
+    def mse(self, a, b):
+        '''
+        taken from: https://discuss.pytorch.org/t/efficient-distance-matrix-computation/9065/3
+        Input: x is a Nxd matrix
+               y is an optional Mxd matirx
+        Output: dist is a NxM matrix where dist[i,j] is the square norm between x[i,:] and y[j,:]
+                if y is not given then use 'y=x'.
+        i.e. dist[i,j] = ||x[i,:]-y[j,:]||^2
+        '''
+        a_norm = (a ** 2).sum(1).view(-1, 1)
+        b_t = torch.transpose(b, 0, 1)
+        b_norm = (b ** 2).sum(1).view(1, -1)
+
+        dist = a_norm + b_norm - 2.0 * torch.mm(a, b_t)
+        # Ensure diagonal is zero if x=y
+        # if y is None:
+        #     dist = dist - torch.diag(dist.diag)
+        return torch.clamp(dist, 0.0, np.inf)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
         sequence_output, send_emb = self.bert(input_ids, token_type_ids, attention_mask,
@@ -106,7 +127,8 @@ class ReferentialGame(PreTrainedBertModel):
                                                    checkpoint_activations=checkpoint_activations)
         lm_scores = self.lm(sequence_output)
 
-        cosine_similarities = self.cosine_similarity(send_emb, rec_emb)
+        # cosine_similarities = self.cosine_similarity(send_emb, rec_emb)
+        cosine_similarities = self.mse(send_emb, rec_emb)
 
         #print(cosine_similarities.shape)
         id_mat = torch.eye(*cosine_similarities.shape).cuda()
