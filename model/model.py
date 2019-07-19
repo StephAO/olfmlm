@@ -67,11 +67,11 @@ class BertModel(torch.nn.Module):
             raise ValueError("If not using a pretrained_bert, please specify a bert config file")
         self.config = BertConfig(args.bert_config_file)
         model_args = [self.config]
+        self.model_type = args.model_type
         if self.model_type == "referential_game":
             self.small_config = BertConfig(args.bert_small_config_file)
-            model_args.extend(self.small_config)
-        self.model = sentence_encoders[args.model_type](*model_args)
-        self.model_type = args.model_type
+            model_args.append(self.small_config)
+        self.model = sentence_encoders[self.model_type](*model_args)
 
     def forward(self, input_tokens, token_type_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
         if self.model_type == "split":
@@ -95,6 +95,12 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
         if self.model_type == "split":
             param_groups += list(get_params_for_weight_decay_optimization(self.model.nsp.seq_relationship))
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
+            param_groups[1]['params'].append(self.model.lm.predictions.bias)
+        elif self.model_type == "referential_game":
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.encoder.layer))
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.pooler))
+            param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.embeddings))
             param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
             param_groups[1]['params'].append(self.model.lm.predictions.bias)
         else:

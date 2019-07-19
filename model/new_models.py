@@ -88,10 +88,9 @@ class ReferentialGame(PreTrainedBertModel):
     """
     def __init__(self, config, config_small):
         super(ReferentialGame, self).__init__(config)
-        self.sender = BertModel(config)
+        self.bert = BertModel(config)
         self.receiver = BertModel(config_small)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.buffer = torch.rand(100, 768)
         self.apply(self.init_bert_weights)
 
     def cosine_similarity(self, a, b):
@@ -100,18 +99,26 @@ class ReferentialGame(PreTrainedBertModel):
         return torch.mm(a_norm, b_norm.transpose(0, 1))
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
-        _, send_emb = self.sender(input_ids, token_type_ids, attention_mask,
+        sequence_output, send_emb = self.bert(input_ids, token_type_ids, attention_mask,
                                                    output_all_encoded_layers=False, checkpoint_activations=checkpoint_activations)
-        sequence_output, rec_emb = self.receiver(input_ids, token_type_ids, attention_mask,
+        _, rec_emb = self.receiver(input_ids, token_type_ids, attention_mask,
                                                    output_all_encoded_layers=False,
                                                    checkpoint_activations=checkpoint_activations)
         lm_scores = self.lm(sequence_output)
 
         cosine_similarities = self.cosine_similarity(send_emb, rec_emb)
 
-        print(cosine_similarities.shape)
-        id_mat = torch.eye(*cosine_similarities.shape)
+        #print(cosine_similarities.shape)
+        id_mat = torch.eye(*cosine_similarities.shape).cuda()
+        bs = id_mat.shape[0]
 
-        rg_loss = torch.nn.relu(1 -  id_mat * cosine_similarities + (1 - id_mat) * cosine_similarities)
+        print('----')
+        print(cosine_similarities)
+        correct = id_mat * cosine_similarities / bs
+        incorrect = (1. - id_mat) * cosine_similarities / (bs * (bs - 1))
+        rg_loss = 2. + torch.sum(incorrect) - torch.sum(correct)
+        #rg_loss = torch.clamp(1. -  id_mat * cosine_similarities + (1. - id_mat) * cosine_similarities, min=0.0)
+        print(rg_loss.item(), 'c:', torch.sum(correct).item(), 'ic:', torch.sum(incorrect).item())
+        #g_loss = torch.sum(rg_loss) / cosine_similarities.shape[0]
 
         return lm_scores, rg_loss
