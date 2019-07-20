@@ -140,6 +140,7 @@ def get_batch(data):
             batch[sent] = (tokens, loss_mask, lm_labels, padding_mask)
     else:
         tokens = torch.autograd.Variable(data['text'].long())
+        sentence_label = torch.autograd.Variable(data['sent_label'].long()) if 'sent_label' in data else torch.arange(tokens.shape[0])
         loss_mask = torch.autograd.Variable(data['mask'].float())
         lm_labels = torch.autograd.Variable(data['mask_labels'].long())
         padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
@@ -148,13 +149,10 @@ def get_batch(data):
         if 'types' in data:
             types = torch.autograd.Variable(data['types'].long())
             types = types.cuda()
-        sentence_label = None
-        if 'is_random' in data or 'is_corrupted' in data:
-            sent_key = 'is_random' if 'is_random' in data else 'is_corrupted'
-            sentence_label = torch.autograd.Variable(data[sent_key].long())
-            sentence_label = sentence_label.cuda()
+
         # Move to cuda
         tokens = tokens.cuda()
+        sentence_label = sentence_label.cuda()
         loss_mask = loss_mask.cuda()
         lm_labels = lm_labels.cuda()
         padding_mask = padding_mask.cuda()
@@ -176,11 +174,9 @@ def forward_step(data, model, criterion, args):
         # Forward model.
         mlm, sentence = model(tokens, types, 1-padding_mask,
                             checkpoint_activations=args.checkpoint_activations)
-        if args.model_type == "referential_game":
-            sentence_loss = sentence
-        else:
-            sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
-                                      sentence_label.view(-1).contiguous()).mean()
+
+        sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
+                                  sentence_label.view(-1).contiguous()).mean()
 
         mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
                            lm_labels.contiguous().view(-1).contiguous())

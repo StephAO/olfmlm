@@ -734,7 +734,7 @@ class bert_sentencepair_dataset(bert_dataset):
         tokensa, tokensb = self.truncate_seq_pair(tokensa, tokensb, self.max_seq_len, rng)
         # join sentence pair, mask, and pad
         tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(tokensa, tokensb, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample = {'text': np.array(tokens[0]), 'types': np.array(tokens[1]), 'is_random': int(is_random_next), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
+        sample = {'text': np.array(tokens[0]), 'types': np.array(tokens[1]), 'sent_label': int(is_random_next), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
         return sample
 
 ### ADDED BY STEPHANE ###
@@ -774,7 +774,7 @@ class bert_split_sentences_dataset(bert_dataset):
         # Mask and pad sentence pair
         sample = {}
         sample['split_sentences'] = True
-        sample['is_random'] = int(is_random_next)
+        sample['sent_label'] = int(is_random_next)
         # A #
         tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
         sample['a'] = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
@@ -825,7 +825,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
 
         # Mask and pad sentence pair
         tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample = {'text': np.array(tokens), 'is_corrupted': int(corrupted), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
+        sample = {'text': np.array(tokens), 'sent_label': int(corrupted), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
 
         return sample
 

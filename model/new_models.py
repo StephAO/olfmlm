@@ -100,6 +100,9 @@ class ReferentialGame(PreTrainedBertModel):
         b_norm = b / b.norm(dim=1)[:, None]
         return torch.mm(a_norm, b_norm.transpose(0, 1))
 
+    def inner_product(self, a, b):
+        return torch.mm(a, b.transpose(0, 1))
+
     def mse(self, a, b):
         '''
         taken from: https://discuss.pytorch.org/t/efficient-distance-matrix-computation/9065/3
@@ -128,19 +131,22 @@ class ReferentialGame(PreTrainedBertModel):
         lm_scores = self.lm(sequence_output)
 
         # cosine_similarities = self.cosine_similarity(send_emb, rec_emb)
-        cosine_similarities = self.mse(send_emb, rec_emb)
+        # cosine_similarities = self.mse(send_emb, rec_emb)
+        rg_scores = self.inner_product(send_emb, rec_emb)
 
-        #print(cosine_similarities.shape)
-        id_mat = torch.eye(*cosine_similarities.shape).cuda()
-        bs = id_mat.shape[0]
+        # p_s = self.p_sent(ip)
+        #
+        # #print(cosine_similarities.shape)
+        # id_mat = torch.eye(*cosine_similarities.shape).cuda()
+        # bs = id_mat.shape[0]
 
-        print('----')
-        print(cosine_similarities)
-        correct = id_mat * cosine_similarities / bs
-        incorrect = (1. - id_mat) * cosine_similarities / (bs * (bs - 1))
-        rg_loss = 2. + torch.sum(incorrect) - torch.sum(correct)
-        #rg_loss = torch.clamp(1. -  id_mat * cosine_similarities + (1. - id_mat) * cosine_similarities, min=0.0)
-        print(rg_loss.item(), 'c:', torch.sum(correct).item(), 'ic:', torch.sum(incorrect).item())
-        #g_loss = torch.sum(rg_loss) / cosine_similarities.shape[0]
+        # print('----')
+        # print(cosine_similarities)
+        # correct = id_mat * cosine_similarities / bs
+        # incorrect = (1. - id_mat) * cosine_similarities / (bs * (bs - 1))
+        # rg_loss = 2. + torch.sum(incorrect) - torch.sum(correct)
+        # #rg_loss = torch.clamp(1. -  id_mat * cosine_similarities + (1. - id_mat) * cosine_similarities, min=0.0)
+        # print(rg_loss.item(), 'c:', torch.sum(correct).item(), 'ic:', torch.sum(incorrect).item())
+        # #g_loss = torch.sum(rg_loss) / cosine_similarities.shape[0]
 
-        return lm_scores, rg_loss
+        return lm_scores, rg_scores
