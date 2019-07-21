@@ -124,13 +124,13 @@ class ReferentialGame(PreTrainedBertModel):
         return torch.clamp(dist, 0.0, np.inf)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
-        sequence_output, send_emb = self.bert(input_ids[0], None, attention_mask[0],
+        seq_output_1, send_emb = self.bert(input_ids[0], None, attention_mask[0],
                                               output_all_encoded_layers=False,
                                               checkpoint_activations=checkpoint_activations)
-        _, rec_emb = self.receiver(input_ids[1], None, attention_mask[1],
+        seq_output_2, rec_emb = self.receiver(input_ids[1], None, attention_mask[1],
                                    output_all_encoded_layers=False,
                                    checkpoint_activations=checkpoint_activations)
-        lm_scores = self.lm(sequence_output)
+        lm_scores = (self.lm(seq_output_1), self.lm(seq_output_2))
         #print(send_emb[0][:5])
         #print(rec_emb[0][:5])
         rg_scores = self.inner_product(send_emb, rec_emb)
