@@ -130,13 +130,18 @@ def get_batch(data):
     if 'types' in data:
         types = torch.autograd.Variable(data['types'].long())
         types = types.cuda()
-
     # Move to cuda
     tokens = tokens.cuda()
     sentence_label = sentence_label.cuda()
     loss_mask = loss_mask.cuda()
     lm_labels = lm_labels.cuda()
     padding_mask = padding_mask.cuda()
+    
+    if 'text2' in data:
+        tokens = (tokens, torch.autograd.Variable(data['text2'].long()))
+        loss_mask = (loss_mask, torch.autograd.Variable(data['mask2'].float()))
+        lm_labels = (lm_labels, torch.autograd.Variable(data['mask_labels2'].long()))
+        padding_mask = (padding_mask, torch.autograd.Variable(data['pad_mask2'].byte()))
 
     return (tokens, types, sentence_label, loss_mask, lm_labels, padding_mask)
 

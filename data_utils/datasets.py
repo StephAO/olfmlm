@@ -778,9 +778,10 @@ class bert_split_sentences_dataset(bert_dataset):
         tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
         # B #
         tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample = {'text': (np.array(tok_a), np.array(tok_b)), 'sent_label': int(is_random_next),
-                  'mask': (np.array(mask_a), np.array(mask_b)), 'mask_labels': (np.array(m_labs_a), np.array(m_labs_b)),
-                  'pad_mask': (np.array(pad_mask_a), np.array(pad_mask_b))}
+        sample = {'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
+                  'pad_mask': np.array(pad_mask_a),
+                  'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
+                  'pad_mask2': np.array(pad_mask_b)}
         return sample
 
 
@@ -964,8 +965,10 @@ class bert_rg_sentences_dataset(bert_dataset):
                                                                                 self.vocab_words, rng)
         # B #
         tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, 0, 0, self.vocab_words, rng)
-        sample = {'text': (np.array(tok_a), np.array(tok_b)), 'mask': (np.array(mask_a), np.array(mask_b)),
-                  'mask_labels': (np.array(m_labs_a), np.array(m_labs_b)), 'pad_mask': (np.array(pad_mask_a), np.array(pad_mask_b))}
+        sample = {'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
+                  'pad_mask': np.array(pad_mask_a),
+                  'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
+                  'pad_mask2': np.array(pad_mask_b)}
         return sample
 
     def create_random_sentencepair(self, target_seq_length, rng):
