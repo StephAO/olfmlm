@@ -951,25 +951,21 @@ class bert_rg_sentences_dataset(bert_dataset):
             short_seq = True
         target_seq_length *= 2
         # get sentence pair and label
-        is_random_next = None
-
-        while (is_random_next is None) or (len(a) < 1) or (len(b) < 1):
-            a, b, is_random_next = self.create_random_sentencepair(target_seq_length, rng)
+        a, b = self.create_random_sentencepair(target_seq_length, rng)
+        while (len(a) < 1) or (len(b) < 1):
+            a, b = self.create_random_sentencepair(target_seq_length, rng)
         # truncate sentences to max_seq_len
         a = self.truncate_seq(a, self.max_seq_len, rng)
         b = self.truncate_seq(b, self.max_seq_len, rng)
         # Mask and pad sentence pair
-        sample = {}
-        sample['sent_label'] = None
         # A #
         tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob,
                                                                                 self.max_preds_per_seq,
                                                                                 self.vocab_words, rng)
         # B #
         tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, 0, 0, self.vocab_words, rng)
-        sample = {'text': (np.array(tok_a), np.array(tok_b)), 'sent_label': None,
-                  'mask': (np.array(mask_a), np.array(mask_b)), 'mask_labels': (np.array(m_labs_a), np.array(m_labs_b)),
-                  'pad_mask': (np.array(pad_mask_a), np.array(pad_mask_b))}
+        sample = {'text': (np.array(tok_a), np.array(tok_b)), 'mask': (np.array(mask_a), np.array(mask_b)),
+                  'mask_labels': (np.array(m_labs_a), np.array(m_labs_b)), 'pad_mask': (np.array(pad_mask_a), np.array(pad_mask_b))}
         return sample
 
     def create_random_sentencepair(self, target_seq_length, rng):
@@ -1024,4 +1020,4 @@ class bert_rg_sentences_dataset(bert_dataset):
                 if self.use_types:
                     token_types_b.extend(curr_str_types[j])
 
-        return tokens_a, tokens_b, is_random_next
+        return tokens_a, tokens_b

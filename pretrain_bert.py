@@ -120,7 +120,8 @@ def get_batch(data):
     shard reset mask of the same dimensions is also returned.
     '''
     tokens = torch.autograd.Variable(data['text'].long())
-    sentence_label = torch.autograd.Variable(data['sent_label'].long())
+    sentence_label = torch.autograd.Variable(data['sent_label'].long()) if 'sent_label' in data else \
+                     torch.eye(tokens.shape[0])
     loss_mask = torch.autograd.Variable(data['mask'].float())
     lm_labels = torch.autograd.Variable(data['mask_labels'].long())
     padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
