@@ -129,11 +129,12 @@ class ReferentialGame(PreTrainedBertModel):
                                                    output_all_encoded_layers=False,
                                                    checkpoint_activations=checkpoint_activations)
         lm_scores = self.lm(sequence_output)
+        print(send_emb[0][:5])
+        print(rec_emb[0][:5])
 
         # cosine_similarities = self.cosine_similarity(send_emb, rec_emb)
         # cosine_similarities = self.mse(send_emb, rec_emb)
         rg_scores = self.inner_product(send_emb, rec_emb)
-
         # p_s = self.p_sent(ip)
         #
         # #print(cosine_similarities.shape)
