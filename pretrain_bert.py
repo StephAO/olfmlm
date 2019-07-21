@@ -119,106 +119,64 @@ def get_batch(data):
     to the seq_len dimension in the LSTM. A Variable representing an appropriate
     shard reset mask of the same dimensions is also returned.
     '''
-    ss = False
-    if 'split_sentences' in data:
-        ss = True
-        batch = {}
-        ns = torch.autograd.Variable(data['is_random'].long())
-        ns = ns.cuda()
-        batch['next_sentence'] = ns
-        for sent in ['a', 'b']:
-            tokens = torch.autograd.Variable(data[sent]['text'].long())
-            loss_mask = torch.autograd.Variable(data[sent]['mask'].float())
-            lm_labels = torch.autograd.Variable(data[sent]['mask_labels'].long())
-            padding_mask = torch.autograd.Variable(data[sent]['pad_mask'].byte())
-            # Move to cuda
-            tokens = tokens.cuda()
-            loss_mask = loss_mask.cuda()
-            lm_labels = lm_labels.cuda()
-            padding_mask = padding_mask.cuda()
+    tokens = torch.autograd.Variable(data['text'].long())
+    sentence_label = torch.autograd.Variable(data['sent_label'].long())
+    loss_mask = torch.autograd.Variable(data['mask'].float())
+    lm_labels = torch.autograd.Variable(data['mask_labels'].long())
+    padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
+    # Optional data
+    types = None
+    if 'types' in data:
+        types = torch.autograd.Variable(data['types'].long())
+        types = types.cuda()
 
-            batch[sent] = (tokens, loss_mask, lm_labels, padding_mask)
-    else:
-        tokens = torch.autograd.Variable(data['text'].long())
-        sentence_label = torch.autograd.Variable(data['sent_label'].long()) if 'sent_label' in data else torch.arange(tokens.shape[0])
-        loss_mask = torch.autograd.Variable(data['mask'].float())
-        lm_labels = torch.autograd.Variable(data['mask_labels'].long())
-        padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
-        # Optional data
-        types = None
-        if 'types' in data:
-            types = torch.autograd.Variable(data['types'].long())
-            types = types.cuda()
+    # Move to cuda
+    tokens = tokens.cuda()
+    sentence_label = sentence_label.cuda()
+    loss_mask = loss_mask.cuda()
+    lm_labels = lm_labels.cuda()
+    padding_mask = padding_mask.cuda()
 
-        # Move to cuda
-        tokens = tokens.cuda()
-        sentence_label = sentence_label.cuda()
-        loss_mask = loss_mask.cuda()
-        lm_labels = lm_labels.cuda()
-        padding_mask = padding_mask.cuda()
-
-        batch = (tokens, types, sentence_label, loss_mask, lm_labels, padding_mask)
-
-    return ss, batch
-
+    return (tokens, types, sentence_label, loss_mask, lm_labels, padding_mask)
 
 def forward_step(data, model, criterion, args):
     """Forward step."""
 
     # Get the batch.
-    split_sentences, batch = get_batch(data)
+    batch = get_batch(data)
 
-    if not split_sentences:
+    tokens, types, sentence_label, loss_mask, lm_labels, padding_mask = batch
+    # Forward model.
+    mlm, sentence = model(tokens, types, 1-padding_mask,
+                          checkpoint_activations=args.checkpoint_activations)
 
-        tokens, types, sentence_label, loss_mask, lm_labels, padding_mask = batch
-        # Forward model.
-        mlm, sentence = model(tokens, types, 1-padding_mask,
-                            checkpoint_activations=args.checkpoint_activations)
+    sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
+                              sentence_label.view(-1).contiguous()).mean()
 
-        sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
-                                  sentence_label.view(-1).contiguous()).mean()
+    if args.model_type == "split":
+        mlm2, loss_mask2, lm_labels2 = mlm[1], loss_mask[1], lm_labels[1]
+        mlm, loss_mask, lm_labels = mlm[0], loss_mask[0], lm_labels[0]
 
-        mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
-                           lm_labels.contiguous().view(-1).contiguous())
+    mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
+                         lm_labels.contiguous().view(-1).contiguous())
 
-        if args.model_type == "corrupt":          
-            # Don't learn masked language from corrupted sentences
-            lm_loss_mask = torch.FloatTensor(1 - np.array(sentence_label)).unsqueeze(1).cuda()
-            lm_loss_mask = lm_loss_mask.repeat(1, args.seq_length).view(-1)
-            mlm_loss = lm_loss_mask * mlm_loss
+    if args.model_type == "corrupt":
+        # Don't learn masked language from corrupted sentences
+        lm_loss_mask = torch.FloatTensor(1 - np.array(sentence_label)).unsqueeze(1).cuda()
+        lm_loss_mask = lm_loss_mask.repeat(1, args.seq_length).view(-1)
+        mlm_loss = lm_loss_mask * mlm_loss
 
-        loss_mask = loss_mask.contiguous()
-        loss_mask = loss_mask.view(-1)
-        lm_loss = torch.sum(
-            mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
+    loss_mask = loss_mask.contiguous()
+    loss_mask = loss_mask.view(-1)
+    lm_loss = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
 
-    else:
-        next_sentence = batch['next_sentence']
-        first_pass = True
-        lm_losses = []
-        for sent in ['a', 'b']:
-            tokens, loss_mask, lm_labels, padding_mask = batch[sent]
-            # Forward model.
-            mlm, sentence = model(tokens, attention_mask=1 - padding_mask,
-                                          checkpoint_activations=args.checkpoint_activations, first_pass=first_pass)
-
-            mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
-                               lm_labels.contiguous().view(-1).contiguous())
-            loss_mask = loss_mask.contiguous()
-            loss_mask = loss_mask.view(-1)
-            lm_loss = torch.sum(
-                mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
-
-            lm_losses.append(lm_loss)
-
-            first_pass = False
-
-        lm_loss = torch.mean(torch.stack(lm_losses))
-        sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
-                             next_sentence.view(-1).contiguous()).mean()
+    if args.model_type == "split":
+        mlm_loss = criterion(mlm2.view(-1, args.data_size).contiguous().float(),
+                             lm_labels2.contiguous().view(-1).contiguous())
+        loss_mask = loss_mask2.contiguous().view(-1)
+        lm_loss += torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
 
     return lm_loss, sentence_loss
-
 
 def backward_step(optimizer, model, lm_loss, nsp_loss, args):
     """Backward step."""
@@ -247,7 +205,6 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
     return lm_loss_reduced, nsp_loss_reduced
-
 
 def train_step(input_data, model, criterion, optimizer, lr_scheduler, args):
     """Single training step."""

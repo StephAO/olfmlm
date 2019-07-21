@@ -773,14 +773,14 @@ class bert_split_sentences_dataset(bert_dataset):
         b = self.truncate_seq(b, self.max_seq_len, rng)
         # Mask and pad sentence pair
         sample = {}
-        sample['split_sentences'] = True
         sample['sent_label'] = int(is_random_next)
         # A #
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample['a'] = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
+        tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
         # B #
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(b, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample['b'] = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
+        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
+        sample = {'text': (np.array(tok_a), np.array(tok_b)), 'sent_label': int(is_random_next),
+                  'mask': (np.array(mask_a), np.array(mask_b)), 'mask_labels': (np.array(m_labs_a), np.array(m_labs_b)),
+                  'pad_mask': (np.array(pad_mask_a), np.array(pad_mask_b))}
         return sample
 
 
@@ -951,21 +951,28 @@ class bert_rg_sentences_dataset(bert_dataset):
             short_seq = True
         target_seq_length *= 2
         # get sentence pair and label
+        is_random_next = None
 
-        a = []
-
-        while (len(a) < 1):
-            a = self.create_sentence(target_seq_length, rng)
+        while (is_random_next is None) or (len(a) < 1) or (len(b) < 1):
+            a, b, is_random_next = self.create_random_sentencepair(target_seq_length, rng)
         # truncate sentences to max_seq_len
         a = self.truncate_seq(a, self.max_seq_len, rng)
-
+        b = self.truncate_seq(b, self.max_seq_len, rng)
         # Mask and pad sentence pair
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample = {'text': np.array(tokens), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
-
+        sample = {}
+        sample['sent_label'] = None
+        # A #
+        tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob,
+                                                                                self.max_preds_per_seq,
+                                                                                self.vocab_words, rng)
+        # B #
+        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, 0, 0, self.vocab_words, rng)
+        sample = {'text': (np.array(tok_a), np.array(tok_b)), 'sent_label': None,
+                  'mask': (np.array(mask_a), np.array(mask_b)), 'mask_labels': (np.array(m_labs_a), np.array(m_labs_b)),
+                  'pad_mask': (np.array(pad_mask_a), np.array(pad_mask_b))}
         return sample
 
-    def create_sentence(self, target_seq_length, rng):
+    def create_random_sentencepair(self, target_seq_length, rng):
         """
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
@@ -973,29 +980,48 @@ class bert_rg_sentences_dataset(bert_dataset):
         is_random_next = None
 
         curr_strs = []
+        curr_str_types = []
         curr_len = 0
 
         while curr_len < 1:
             curr_len = 0
             doc_a = None
             while doc_a is None:
-                doc_a_idx = rng.randint(0, self.ds_len-1)
+                doc_a_idx = rng.randint(0, self.ds_len - 1)
                 doc_a = self.sentence_split(self.get_doc(doc_a_idx))
                 if not doc_a:
                     doc_a = None
 
-            random_start_a = rng.randint(0, len(doc_a)-1)
+            random_start_a = rng.randint(0, len(doc_a) - 1)
             while random_start_a < len(doc_a):
                 sentence = doc_a[random_start_a]
-                sentence, _ = self.sentence_tokenize(sentence, 0, random_start_a == 0, random_start_a == len(doc_a))
+                sentence, sentence_types = self.sentence_tokenize(sentence, 0, random_start_a == 0,
+                                                                  random_start_a == len(doc_a))
                 curr_strs.append(sentence)
+                curr_str_types.append(sentence_types)
                 curr_len += len(sentence)
                 if random_start_a == len(doc_a) - 1 or curr_len >= target_seq_length:
                     break
-                random_start_a = (random_start_a+1)
+                random_start_a = (random_start_a + 1)
 
-        tokens = []
-        for j in range(len(curr_strs)):
-            tokens.extend(curr_strs[j])
+        if curr_strs:
+            num_a = 1
+            if len(curr_strs) >= 2:
+                num_a = rng.randint(0, len(curr_strs))
 
-        return tokens
+            tokens_a = []
+            token_types_a = []
+            for j in range(num_a):
+                tokens_a.extend(curr_strs[j])
+                if self.use_types:
+                    token_types_a.extend(curr_str_types[j])
+
+            tokens_b = []
+            token_types_b = []
+
+            for j in range(num_a, len(curr_strs)):
+                tokens_b.extend(curr_strs[j])
+                if self.use_types:
+                    token_types_b.extend(curr_str_types[j])
+
+        return tokens_a, tokens_b, is_random_next

@@ -32,19 +32,20 @@ class Split(PreTrainedBertModel):
         return (x - torch.mean(x, 1, keepdim=True)) / torch.std(x, 1, keepdim=True)
 
     def forward(self, input_ids, first_pass, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
-        sequence_output, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
-                                                   output_all_encoded_layers=False, checkpoint_activations=checkpoint_activations)
+        sequence_output = []
+        pooled_output = []
+        for i in range(2):
+            s_o, p_o = self.bert(input_ids[i], None, attention_mask[i],
+                                 output_all_encoded_layers=False, checkpoint_activations=checkpoint_activations)
+            sequence_output.append(s_o)
+            pooled_output.append(p_o)
 
-        lm_scores = self.lm(sequence_output)
-
-        if first_pass:
-            self.first_pooled_output = pooled_output
-            return lm_scores, 0.0
+        lm_scores = (self.lm(sequence_output[0]), self.lm(sequence_output[1]))
 
         # TODO try difference, dot product, combination
         # diff = pooled_output - self.first_pooled_output
         # dot_product = torch.bmm(self.first_pooled_output.view(-1, 1, self.config.hidden_size), pooled_output.view(-1, self.config.hidden_size, 1)).view(-1, 1)
-        product = self.first_pooled_output * pooled_output
+        product = pooled_output[0] * pooled_output[1]
         nsp_classifier_features = self.normalize(product)  #torch.cat((self.first_pooled_output, pooled_output), 1)
         nsp_scores = self.nsp(nsp_classifier_features)
 
@@ -123,30 +124,14 @@ class ReferentialGame(PreTrainedBertModel):
         return torch.clamp(dist, 0.0, np.inf)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
-        sequence_output, send_emb = self.bert(input_ids, token_type_ids, attention_mask,
-                                                   output_all_encoded_layers=False, checkpoint_activations=checkpoint_activations)
-        _, rec_emb = self.receiver(input_ids, token_type_ids, attention_mask,
-                                                   output_all_encoded_layers=False,
-                                                   checkpoint_activations=checkpoint_activations)
+        sequence_output, send_emb = self.bert(input_ids[0], None, attention_mask[0],
+                                              output_all_encoded_layers=False,
+                                              checkpoint_activations=checkpoint_activations)
+        _, rec_emb = self.receiver(input_ids[1], None, attention_mask[1],
+                                   output_all_encoded_layers=False,
+                                   checkpoint_activations=checkpoint_activations)
         lm_scores = self.lm(sequence_output)
 
-        # cosine_similarities = self.cosine_similarity(send_emb, rec_emb)
-        # cosine_similarities = self.mse(send_emb, rec_emb)
         rg_scores = self.inner_product(send_emb, rec_emb)
-
-        # p_s = self.p_sent(ip)
-        #
-        # #print(cosine_similarities.shape)
-        # id_mat = torch.eye(*cosine_similarities.shape).cuda()
-        # bs = id_mat.shape[0]
-
-        # print('----')
-        # print(cosine_similarities)
-        # correct = id_mat * cosine_similarities / bs
-        # incorrect = (1. - id_mat) * cosine_similarities / (bs * (bs - 1))
-        # rg_loss = 2. + torch.sum(incorrect) - torch.sum(correct)
-        # #rg_loss = torch.clamp(1. -  id_mat * cosine_similarities + (1. - id_mat) * cosine_similarities, min=0.0)
-        # print(rg_loss.item(), 'c:', torch.sum(correct).item(), 'ic:', torch.sum(incorrect).item())
-        # #g_loss = torch.sum(rg_loss) / cosine_similarities.shape[0]
 
         return lm_scores, rg_scores
