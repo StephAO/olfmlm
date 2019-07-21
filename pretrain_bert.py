@@ -150,7 +150,8 @@ def forward_step(data, model, criterion, args):
     mlm, sentence = model(tokens, types, 1-padding_mask,
                           checkpoint_activations=args.checkpoint_activations)
 
-    sentence_loss = criterion(sentence.view(-1, 2).contiguous().float(),
+    sentence = sentence if args.model_type == "referential_game" else sentence.view(-1, 2)
+    sentence_loss = criterion(sentence.contiguous().float(),
                               sentence_label.view(-1).contiguous()).mean()
 
     if args.model_type == "split":
@@ -205,6 +206,7 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
     return lm_loss_reduced, nsp_loss_reduced
+
 
 def train_step(input_data, model, criterion, optimizer, lr_scheduler, args):
     """Single training step."""
