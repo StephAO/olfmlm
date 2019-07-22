@@ -24,18 +24,20 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.training.metrics import Average, BooleanAccuracy, CategoricalAccuracy, F1Measure
 from sklearn.metrics import mean_squared_error
 
-from ..allennlp_mods.correlation import Correlation
-from ..allennlp_mods.numeric_field import NumericField
-from ..utils import utils
-from ..utils.data_loaders import (
+from jiant.allennlp_mods.correlation import Correlation
+from jiant.allennlp_mods.numeric_field import NumericField
+from jiant.utils import utils
+from jiant.utils.data_loaders import (
     get_tag_list,
     load_diagnostic_tsv,
     load_span_data,
     load_tsv,
     process_sentence,
+    load_pair_nli_jsonl,
 )
-from ..utils.tokenizers import get_tokenizer
-from .registry import register_task  # global task registry
+from jiant.utils.tokenizers import get_tokenizer
+from jiant.tasks.registry import register_task  # global task registry
+from jiant.metrics.winogender_metrics import GenderParity
 
 """Define the tasks and code for loading their data.
 
@@ -105,7 +107,7 @@ def process_single_pair_task_split(split, indexers, is_pair=True, classification
         else:
             d["labels"] = NumericField(labels)
 
-        d["idx"] = LabelField(idx, label_namespace="idxs", skip_indexing=True)
+        d["idx"] = LabelField(idx, label_namespace="idxs_tags", skip_indexing=True)
 
         return Instance(d)
 
@@ -196,9 +198,10 @@ class Task(object):
         self.name = name
         self._tokenizer_name = tokenizer_name
         self.scorers = []
-
+        self.eval_only_task = False
         self.sentences = None
         self.example_counts = None
+        self.contributes_to_aggregate_score = True
 
     def load_data(self):
         """ Load data from path and create splits. """
@@ -720,7 +723,7 @@ class CoLAAnalysisTask(SingleClassificationTask):
             d["sent1_str"] = MetadataField(" ".join(input1[1:-1]))
             d["labels"] = LabelField(labels, label_namespace="labels", skip_indexing=True)
             d["tagmask"] = MultiLabelField(
-                tagids, label_namespace="tagids", skip_indexing=True, num_labels=len(self.tag_list)
+                tagids, label_namespace="tags", skip_indexing=True, num_labels=len(self.tag_list)
             )
             return Instance(d)
 
@@ -1192,10 +1195,12 @@ class MultiNLITask(PairClassificationTask):
         log.info("\tFinished loading MNLI data.")
 
 
+# GLUE diagnostic (3-class NLI), expects TSV
 @register_task("glue-diagnostic", rel_path="MNLI/", n_classes=3)
-@register_task("superglue-diagnostic", rel_path="RTE/", n_classes=2)
+# GLUE diagnostic (2 class NLI, merging neutral and contradiction into not_entailment)
+@register_task("glue-diagnostic-binary", rel_path="RTE/", n_classes=2)
 class GLUEDiagnosticTask(PairClassificationTask):
-    """ Task class for GLUE/SuperGLUE diagnostic data """
+    """ Task class for GLUE diagnostic data """
 
     def __init__(self, path, max_seq_len, name, n_classes, **kw):
         super().__init__(name, n_classes, **kw)
@@ -1211,6 +1216,11 @@ class GLUEDiagnosticTask(PairClassificationTask):
         self.ix_to_pr_ar_str_dic = None
         self.ix_to_logic_dic = None
         self.ix_to_knowledge_dic = None
+        self._scorer_all_mcc = None
+        self._scorer_all_acc = None
+
+        self.contributes_to_aggregate_score = False
+        self.eval_only_task = True
 
     def load_data(self):
         """load diagnostics data. The tags for every column are loaded as indices.
@@ -1276,11 +1286,15 @@ class GLUEDiagnosticTask(PairClassificationTask):
         create_score_function(Correlation, "matthews", self.ix_to_pr_ar_str_dic, "pr_ar_str")
         create_score_function(Correlation, "matthews", self.ix_to_logic_dic, "logic")
         create_score_function(Correlation, "matthews", self.ix_to_knowledge_dic, "knowledge")
+        self._scorer_all_mcc = Correlation("matthews")  # score all examples according to MCC
+        self._scorer_all_acc = CategoricalAccuracy()  # score all examples according to acc
         log.info("\tFinished creating score functions for diagnostic data.")
 
     def update_diagnostic_metrics(self, logits, labels, batch):
         # Updates scorer for every tag in a given column (tag_group) and also the
         # the scorer for the column itself.
+        _, preds = logits.max(dim=1)
+
         def update_scores_for_tag_group(ix_to_tags_dic, tag_group):
             for ix, tag in ix_to_tags_dic.items():
                 # 0 is for missing tag so here we use it to update scorer for the column
@@ -1303,9 +1317,9 @@ class GLUEDiagnosticTask(PairClassificationTask):
                 if indices_to_pull.size()[0] == 0:
                     continue
                 sub_labels = labels[indices_to_pull[:, 0]]
-                sub_logits = logits[indices_to_pull[:, 0]]
+                sub_preds = preds[indices_to_pull[:, 0]]
                 scorer = getattr(self, scorer_str)
-                scorer(sub_logits, sub_labels)
+                scorer(sub_preds, sub_labels)
             return
 
         # Updates scorers for each tag.
@@ -1313,6 +1327,8 @@ class GLUEDiagnosticTask(PairClassificationTask):
         update_scores_for_tag_group(self.ix_to_pr_ar_str_dic, "pr_ar_str")
         update_scores_for_tag_group(self.ix_to_logic_dic, "logic")
         update_scores_for_tag_group(self.ix_to_knowledge_dic, "knowledge")
+        self._scorer_all_mcc(preds, labels)
+        self._scorer_all_acc(logits, labels)
 
     def process_split(self, split, indexers) -> Iterable[Type[Instance]]:
         """ Process split text into a list of AllenNLP Instances. """
@@ -1323,7 +1339,7 @@ class GLUEDiagnosticTask(PairClassificationTask):
             # 1.
             is_tag_group = 1 if len(tag_arr) != 0 else 0
             fields_dict[tag_group] = LabelField(
-                is_tag_group, label_namespace=tag_group, skip_indexing=True
+                is_tag_group, label_namespace=tag_group + "_tags", skip_indexing=True
             )
             # For every possible tag in the column set 1 if the tag is present for
             # this example, 0 otherwise.
@@ -1332,7 +1348,7 @@ class GLUEDiagnosticTask(PairClassificationTask):
                     continue
                 is_present = 1 if ix in tag_arr else 0
                 fields_dict["%s__%s" % (tag_group, tag)] = LabelField(
-                    is_present, label_namespace="%s__%s" % (tag_group, tag), skip_indexing=True
+                    is_present, label_namespace="%s__%s_tags" % (tag_group, tag), skip_indexing=True
                 )
             return
 
@@ -1346,7 +1362,7 @@ class GLUEDiagnosticTask(PairClassificationTask):
                 d["input1"] = sentence_to_text_field(input1, indexers)
                 d["input2"] = sentence_to_text_field(input2, indexers)
             d["labels"] = LabelField(label, label_namespace="labels", skip_indexing=True)
-            d["idx"] = LabelField(idx, label_namespace="idx", skip_indexing=True)
+            d["idx"] = LabelField(idx, label_namespace="idx_tags", skip_indexing=True)
             d["sent1_str"] = MetadataField(" ".join(input1[1:-1]))
             d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
 
@@ -1365,9 +1381,6 @@ class GLUEDiagnosticTask(PairClassificationTask):
     def get_metrics(self, reset=False):
         """Get metrics specific to the task"""
         collected_metrics = {}
-        # We do not compute accuracy for this dataset but the eval function
-        # requires this key.
-        collected_metrics["accuracy"] = 0
 
         def collect_metrics(ix_to_tag_dict, tag_group):
             for index, tag in ix_to_tag_dict.items():
@@ -1386,7 +1399,202 @@ class GLUEDiagnosticTask(PairClassificationTask):
         collect_metrics(self.ix_to_pr_ar_str_dic, "pr_ar_str")
         collect_metrics(self.ix_to_logic_dic, "logic")
         collect_metrics(self.ix_to_knowledge_dic, "knowledge")
+        collected_metrics["all_mcc"] = self._scorer_all_mcc.get_metric(reset)
+        collected_metrics["accuracy"] = self._scorer_all_acc.get_metric(reset)
         return collected_metrics
+
+
+# SuperGLUE diagnostic (2-class NLI), expects JSONL
+@register_task("broadcoverage-diagnostic", rel_path="RTE/diagnostics")
+class BroadCoverageDiagnosticTask(GLUEDiagnosticTask):
+    """ Class for SuperGLUE broad coverage (linguistics, commonsense, world knowledge) diagnostic task """
+
+    def __init__(self, path, max_seq_len, name, **kw):
+        super().__init__(path, max_seq_len, name, n_classes=2, **kw)
+        self.path = path
+        self.max_seq_len = max_seq_len
+        self.n_classes = 2
+
+        self.train_data_text = None
+        self.val_data_text = None
+        self.test_data_text = None
+
+        self.ix_to_lex_sem_dic = None
+        self.ix_to_pr_ar_str_dic = None
+        self.ix_to_logic_dic = None
+        self.ix_to_knowledge_dic = None
+        self._scorer_all_mcc = None
+        self._scorer_all_acc = None
+        self.eval_only_task = True
+
+    def load_data(self):
+        """load diagnostics data. The tags for every column are loaded as indices.
+        They will be converted to bools in preprocess_split function"""
+
+        def _build_label_vocab(labelspace, data):
+            """ This function builds the vocab mapping for a particular labelspace,
+            which in practice is a coarse-grained diagnostic category. """
+            values = set([d[labelspace] for d in data if labelspace in d])
+            vocab = vocabulary.Vocabulary(counter=None, non_padded_namespaces=[labelspace])
+            for value in values:
+                vocab.add_token_to_namespace(value, labelspace)
+            idx_to_word = vocab.get_index_to_token_vocabulary(labelspace)
+            word_to_idx = vocab.get_token_to_index_vocabulary(labelspace)
+            indexed = [[word_to_idx[d[labelspace]]] if labelspace in d else [] for d in data]
+            return word_to_idx, idx_to_word, indexed
+
+        def create_score_function(scorer, arg_to_scorer, tags_dict, tag_group):
+            """ Create a scorer for each tag in a given tag group.
+            The entire tag_group also has its own scorer"""
+            setattr(self, "scorer__%s" % tag_group, scorer(arg_to_scorer))
+            for index, tag in tags_dict.items():
+                # 0 is missing value
+                if index == 0:
+                    continue
+                setattr(self, "scorer__%s__%s" % (tag_group, tag), scorer(arg_to_scorer))
+
+        targ_map = {"entailment": 1, "not_entailment": 0}
+        data = [json.loads(d) for d in open(os.path.join(self.path, "AX-b.jsonl"))]
+        sent1s = [
+            process_sentence(self._tokenizer_name, d["sentence1"], self.max_seq_len) for d in data
+        ]
+        sent2s = [
+            process_sentence(self._tokenizer_name, d["sentence2"], self.max_seq_len) for d in data
+        ]
+        labels = [targ_map[d["label"]] for d in data]
+        idxs = [int(d["idx"]) for d in data]
+        lxs2idx, idx2lxs, lxs = _build_label_vocab("lexical-semantics", data)
+        pas2idx, idx2pas, pas = _build_label_vocab("predicate-argument-structure", data)
+        lgc2idx, idx2lgc, lgc = _build_label_vocab("logic", data)
+        knw2idx, idx2knw, knw = _build_label_vocab("knowledge", data)
+        diag_data_dic = {
+            "sents1": sent1s,
+            "sents2": sent2s,
+            "targs": labels,
+            "idxs": idxs,
+            "lex_sem": lxs,
+            "pr_ar_str": pas,
+            "logic": lgc,
+            "knowledge": knw,
+            "ix_to_lex_sem_dic": idx2lxs,
+            "ix_to_pr_ar_str_dic": idx2pas,
+            "ix_to_logic_dic": idx2lgc,
+            "ix_to_knowledge_dic": idx2knw,
+        }
+
+        self.ix_to_lex_sem_dic = diag_data_dic["ix_to_lex_sem_dic"]
+        self.ix_to_pr_ar_str_dic = diag_data_dic["ix_to_pr_ar_str_dic"]
+        self.ix_to_logic_dic = diag_data_dic["ix_to_logic_dic"]
+        self.ix_to_knowledge_dic = diag_data_dic["ix_to_knowledge_dic"]
+
+        # Train, val, test splits are same. We only need one split but the code
+        # probably expects all splits to be present.
+        self.train_data_text = (
+            diag_data_dic["sents1"],
+            diag_data_dic["sents2"],
+            diag_data_dic["targs"],
+            diag_data_dic["idxs"],
+            diag_data_dic["lex_sem"],
+            diag_data_dic["pr_ar_str"],
+            diag_data_dic["logic"],
+            diag_data_dic["knowledge"],
+        )
+        self.val_data_text = self.train_data_text
+        self.test_data_text = self.train_data_text
+        self.sentences = self.train_data_text[0] + self.train_data_text[1]
+        log.info("\tFinished loading diagnostic data.")
+
+        # TODO: use FastMatthews instead to save memory.
+        create_score_function(Correlation, "matthews", self.ix_to_lex_sem_dic, "lex_sem")
+        create_score_function(Correlation, "matthews", self.ix_to_pr_ar_str_dic, "pr_ar_str")
+        create_score_function(Correlation, "matthews", self.ix_to_logic_dic, "logic")
+        create_score_function(Correlation, "matthews", self.ix_to_knowledge_dic, "knowledge")
+        self._scorer_all_mcc = Correlation("matthews")  # score all examples according to MCC
+        self._scorer_all_acc = CategoricalAccuracy()  # score all examples according to acc
+        log.info("\tFinished creating score functions for diagnostic data.")
+
+
+@register_task("winogender-diagnostic", rel_path="RTE/diagnostics", n_classes=2)
+class WinogenderTask(GLUEDiagnosticTask):
+    """Supported winogender task """
+
+    def __init__(self, path, max_seq_len, name, n_classes, **kw):
+        super().__init__(path, max_seq_len, name, n_classes, **kw)
+        self.path = path
+        self.max_seq_len = max_seq_len
+        self.n_classes = n_classes
+
+        self.train_data_text = None
+        self.val_data_text = None
+        self.test_data = None
+        self.acc_scorer = BooleanAccuracy()
+        self.gender_parity_scorer = GenderParity()
+        self.val_metric = "%s_accuracy" % name
+
+    def load_data(self):
+        """ Process the datasets located at path. """
+        targ_map = {"not_entailment": 0, "entailment": 1}
+
+        self.train_data_text = load_pair_nli_jsonl(
+            os.path.join(self.path, "AX-g.jsonl"), self._tokenizer_name, self.max_seq_len, targ_map
+        )
+        self.val_data_text = load_pair_nli_jsonl(
+            os.path.join(self.path, "AX-g.jsonl"), self._tokenizer_name, self.max_seq_len, targ_map
+        )
+        self.test_data_text = load_pair_nli_jsonl(
+            os.path.join(self.path, "AX-g.jsonl"), self._tokenizer_name, self.max_seq_len, targ_map
+        )
+        self.sentences = (
+            self.train_data_text[0]
+            + self.train_data_text[1]
+            + self.val_data_text[0]
+            + self.val_data_text[1]
+        )
+        log.info("\tFinished loading winogender (from SuperGLUE formatted data).")
+
+    def process_split(self, split, indexers):
+        is_using_bert = "bert_wpm_pretokenized" in indexers
+
+        def _make_instance(input1, input2, labels, idx, pair_id):
+            d = {}
+            d["sent1_str"] = MetadataField(" ".join(input1[1:-1]))
+            if is_using_bert:
+                inp = input1 + input2[1:]  # throw away input2 leading [CLS]
+                d["inputs"] = sentence_to_text_field(inp, indexers)
+                d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
+            else:
+                d["input1"] = sentence_to_text_field(input1, indexers)
+                if input2:
+                    d["input2"] = sentence_to_text_field(input2, indexers)
+                    d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
+            d["labels"] = LabelField(labels, label_namespace="labels", skip_indexing=True)
+            d["idx"] = LabelField(idx, label_namespace="idxs_tags", skip_indexing=True)
+            d["pair_id"] = LabelField(pair_id, label_namespace="pair_id_tags", skip_indexing=True)
+            return Instance(d)
+
+        instances = map(_make_instance, *split)
+        return instances  # lazy iterator
+
+    def get_metrics(self, reset=False):
+        return {
+            "accuracy": self.acc_scorer.get_metric(reset),
+            "gender_parity": self.gender_parity_scorer.get_metric(reset),
+        }
+
+    def update_diagnostic_metrics(self, logits, labels, batch):
+        _, preds = logits.max(dim=1)
+        self.acc_scorer(preds, labels)
+        batch["preds"] = preds
+        # Convert batch to dict to fit gender_parity_scorer API.
+        batch_dict = [
+            {
+                key: batch[key][index]
+                for key in batch.keys()
+                if key not in ["input1", "input2", "inputs"]
+            }
+            for index in range(len(batch["sent1_str"]))
+        ]
+        self.gender_parity_scorer(batch_dict)
 
 
 @register_task("rte", rel_path="RTE/")
@@ -1447,11 +1655,12 @@ class RTETask(PairClassificationTask):
 
 @register_task("rte-superglue", rel_path="RTE/")
 class RTESuperGLUETask(RTETask):
-    """ Task class for Recognizing Textual Entailment 1, 2, 3, 5 """
+    """ Task class for Recognizing Textual Entailment 1, 2, 3, 5
+    Uses JSONL format used by SuperGLUE"""
 
     def load_data(self):
         """ Process the datasets located at path. """
-        targ_map = {"not_entailment": 0, "entailment": 1}
+        targ_map = {"not_entailment": 0, True: 1, False: 0, "entailment": 1}
 
         def _load_jsonl(data_file):
             data = [json.loads(d) for d in open(data_file, encoding="utf-8")]
@@ -1471,6 +1680,7 @@ class RTESuperGLUETask(RTETask):
         self.train_data_text = _load_jsonl(os.path.join(self.path, "train.jsonl"))
         self.val_data_text = _load_jsonl(os.path.join(self.path, "val.jsonl"))
         self.test_data_text = _load_jsonl(os.path.join(self.path, "test.jsonl"))
+
         self.sentences = (
             self.train_data_text[0]
             + self.train_data_text[1]
@@ -1921,7 +2131,7 @@ class CCGTaggingTask(TaggingTask):
             for sent in split[2]
         ]
         mask = [
-            MultiLabelField(mask, label_namespace="indices", skip_indexing=True, num_labels=511)
+            MultiLabelField(mask, label_namespace="idx_tags", skip_indexing=True, num_labels=511)
             for mask in split[3]
         ]
         instances = [
@@ -2053,7 +2263,6 @@ class SpanClassificationTask(Task):
         self._iters_by_split = None
 
         self.label_file = os.path.join(path, label_file)
-        self.all_labels = None
         self.n_classes = None
         self._label_namespace = self.name + "_labels"
 
@@ -2127,14 +2336,8 @@ class SpanClassificationTask(Task):
             example["span" + str(i + 1) + "s"] = ListField(
                 [self._make_span_field(record["target"]["span" + str(i + 1)], text_field, 1)]
             )
-        example["labels"] = ListField(
-            [
-                MultiLabelField(
-                    [str(record["label"])],
-                    label_namespace=self._label_namespace,
-                    skip_indexing=False,
-                )
-            ]
+        example["labels"] = LabelField(
+            record["label"], label_namespace="labels", skip_indexing=True
         )
         return Instance(example)
 
@@ -2145,9 +2348,6 @@ class SpanClassificationTask(Task):
             return self.make_instance(r, idx, indexers)
 
         return map(_map_fn, records, itertools.count())
-
-    def get_all_labels(self) -> List[str]:
-        return self.all_labels
 
     def get_sentences(self) -> Iterable[Sequence[str]]:
         """ Yield sentences, used to compute vocabulary. """
@@ -2169,7 +2369,7 @@ class SpanClassificationTask(Task):
         return metrics
 
 
-@register_task("commitbank", rel_path="CommitmentBank/")
+@register_task("commitbank", rel_path="CB/")
 class CommitmentTask(PairClassificationTask):
     """ NLI-formatted task detecting speaker commitment.
     Data and more info at github.com/mcdm/CommitmentBank/
@@ -2209,8 +2409,8 @@ class CommitmentTask(PairClassificationTask):
                 )
                 trg = targ_map[example["label"]] if "label" in example else 0
                 targs.append(trg)
-                targs.append(trg)
                 idxs.append(example["idx"])
+            assert len(sent1s) == len(sent2s) == len(targs) == len(idxs), "Error processing CB data"
             return [sent1s, sent2s, targs, idxs]
 
         self.train_data_text = _load_data(os.path.join(self.path, "train.jsonl"))
@@ -2222,6 +2422,7 @@ class CommitmentTask(PairClassificationTask):
             + self.train_data_text[1]
             + self.val_data_text[1]
         )
+
         log.info("\tFinished loading CommitmentBank data.")
 
     def get_metrics(self, reset=False):
@@ -2263,26 +2464,42 @@ class WiCTask(PairClassificationTask):
 
         trg_map = {"true": 1, "false": 0, True: 1, False: 0}
 
+        def _process_preserving_word(sent, word):
+            """ Tokenize the subsequence before the [first] instance of the word and after,
+            then concatenate everything together. This allows us to track where in the tokenized
+            sequence the marked word is located. """
+            sent_parts = sent.split(word)
+            sent_tok1 = process_sentence(self._tokenizer_name, sent_parts[0], self.max_seq_len)
+            sent_tok2 = process_sentence(self._tokenizer_name, sent_parts[1], self.max_seq_len)
+            sent_mid = process_sentence(self._tokenizer_name, word, self.max_seq_len)
+            sent_tok = sent_tok1[:-1] + sent_mid[1:-1] + sent_tok2[1:]
+            start_idx = len(sent_tok1[:-1])
+            end_idx = start_idx + len(sent_mid[1:-1])
+            assert end_idx > start_idx, "Invalid marked word indices. Something is wrong."
+            return sent_tok, start_idx, end_idx
+
         def _load_split(data_file):
-            sents1, sents2, idxs1, idxs2, trgs = [], [], [], [], []
+            sents1, sents2, idxs1, idxs2, trgs, idxs = [], [], [], [], [], []
             with open(data_file, "r") as data_fh:
                 for row in data_fh:
                     row = json.loads(row)
-                    sent1 = process_sentence(
-                        self._tokenizer_name, row["sentence1"], self.max_seq_len
-                    )
-                    sent2 = process_sentence(
-                        self._tokenizer_name, row["sentence2"], self.max_seq_len
-                    )
+                    sent1 = row["sentence1"]
+                    sent2 = row["sentence2"]
+                    word1 = sent1[row["start1"] : row["end1"]]
+                    word2 = sent2[row["start2"] : row["end2"]]
+                    sent1, start1, end1 = _process_preserving_word(sent1, word1)
+                    sent2, start2, end2 = _process_preserving_word(sent2, word2)
                     sents1.append(sent1)
                     sents2.append(sent2)
-                    idx1 = row["sentence1_idx"]
-                    idx2 = row["sentence2_idx"]
-                    idxs1.append(int(idx1))
-                    idxs2.append(int(idx2))
+                    idxs1.append((start1, end1))
+                    idxs2.append((start2, end2))
                     trg = trg_map[row["label"]] if "label" in row else 0
                     trgs.append(trg)
-                return [sents1, sents2, idxs1, idxs2, trgs]
+                    idxs.append(row["idx"])
+                    assert (
+                        "version" in row and row["version"] == 1.1
+                    ), "WiC version is not v1.1; examples indices are likely incorrect and data is likely pre-tokenized. Please re-download the data from super.gluebenchmark for the correct data."
+                return [sents1, sents2, idxs1, idxs2, trgs, idxs]
 
         self.train_data_text = _load_split(os.path.join(self.path, "train.jsonl"))
         self.val_data_text = _load_split(os.path.join(self.path, "val.jsonl"))
@@ -2307,25 +2524,20 @@ class WiCTask(PairClassificationTask):
         def _make_instance(input1, input2, idxs1, idxs2, labels, idx):
             d = {}
             d["sent1_str"] = MetadataField(" ".join(input1[1:-1]))
-            d["idx1"] = NumericField(idxs1)
             d["sent2_str"] = MetadataField(" ".join(input2[1:-1]))
-            d["idx2"] = NumericField(idxs2)  # modify if using BERT
             if is_using_bert:
                 inp = input1 + input2[1:]  # throw away input2 leading [CLS]
                 d["inputs"] = sentence_to_text_field(inp, indexers)
-                idxs2 += len(input1)
+                idxs2 = (idxs2[0] + len(input1), idxs2[1] + len(input1))
             else:
                 d["input1"] = sentence_to_text_field(input1, indexers)
                 d["input2"] = sentence_to_text_field(input2, indexers)
+            d["idx1"] = ListField([NumericField(i) for i in range(idxs1[0], idxs1[1])])
+            d["idx2"] = ListField([NumericField(i) for i in range(idxs2[0], idxs2[1])])
             d["labels"] = LabelField(labels, label_namespace="labels", skip_indexing=True)
-
-            d["idx"] = LabelField(idx, label_namespace="idxs", skip_indexing=True)
+            d["idx"] = LabelField(idx, label_namespace="idxs_tags", skip_indexing=True)
 
             return Instance(d)
-
-        if len(split) < 6:  # counting iterator for idx
-            assert len(split) == 5
-            split.append(itertools.count())
 
         # Map over columns: input1, (input2), labels, idx
         instances = map(_make_instance, *split)
@@ -2418,7 +2630,7 @@ class COPATask(MultipleChoiceTask):
                 d["choice%d" % choice_idx] = sentence_to_text_field(inp, indexers)
                 d["choice%d_str" % choice_idx] = MetadataField(" ".join(choice[1:-1]))
             d["label"] = LabelField(label, label_namespace="labels", skip_indexing=True)
-            d["idx"] = LabelField(idx, label_namespace="idxs", skip_indexing=True)
+            d["idx"] = LabelField(idx, label_namespace="idxs_tags", skip_indexing=True)
             return Instance(d)
 
         split = list(split)
@@ -2497,7 +2709,7 @@ class SWAGTask(MultipleChoiceTask):
                 d["choice%d" % choice_idx] = sentence_to_text_field(inp, indexers)
                 d["choice%d_str" % choice_idx] = MetadataField(" ".join(choice[1:-1]))
             d["label"] = LabelField(label, label_namespace="labels", skip_indexing=True)
-            d["idx"] = LabelField(idx, label_namespace="idxs", skip_indexing=True)
+            d["idx"] = LabelField(idx, label_namespace="idxs_tags", skip_indexing=True)
             return Instance(d)
 
         split = list(split)
@@ -2512,7 +2724,7 @@ class SWAGTask(MultipleChoiceTask):
         return {"accuracy": acc}
 
 
-@register_task("winograd-coreference", rel_path="winograd-coref")
+@register_task("winograd-coreference", rel_path="WSC")
 class WinogradCoreferenceTask(SpanClassificationTask):
     def __init__(self, path, **kw):
         self._files_by_split = {"train": "train.jsonl", "val": "val.jsonl", "test": "test.jsonl"}
@@ -2531,31 +2743,17 @@ class WinogradCoreferenceTask(SpanClassificationTask):
                     self.tokenizer_name, filename, has_labels=False
                 )
             else:
-                iters_by_split[split] = load_span_data(self.tokenizer_name, filename)
+                iters_by_split[split] = load_span_data(
+                    self.tokenizer_name, filename, label_fn=lambda x: int(x)
+                )
         self._iters_by_split = iters_by_split
-
-    def get_all_labels(self):
-        return ["True", "False"]
 
     def update_metrics(self, logits, labels, tagmask=None):
         logits, labels = logits.detach(), labels.detach()
+        _, preds = logits.max(dim=1)
 
-        def make_one_hot(batch, depth=2):
-            """
-            Creates a one-hot embedding of dimension 2.
-            Parameters:
-            batch: list of size batch_size of class predictions
-            Returns:
-            one hot encoding of size [batch_size, 2]
-            """
-            ones = torch.sparse.torch.eye(depth).cuda()
-            return ones.index_select(0, batch)
-
-        binary_preds = make_one_hot(logits, depth=2)
-        # Make label_ints a batch_size list of labels
-        label_ints = torch.argmax(labels, dim=1)
-        self.f1_scorer(binary_preds, label_ints)
-        self.acc_scorer(binary_preds.long(), labels.long())
+        self.f1_scorer(logits, labels)  # expects [batch_size, n_classes] for preds
+        self.acc_scorer(preds, labels)  # expects [batch_size, 1] for both
 
     def get_metrics(self, reset=False):
         """Get metrics specific to the task"""
@@ -2564,3 +2762,87 @@ class WinogradCoreferenceTask(SpanClassificationTask):
             "acc": self.acc_scorer.get_metric(reset),
         }
         return collected_metrics
+
+
+@register_task("boolq", rel_path="BoolQ")
+class BooleanQuestionTask(PairClassificationTask):
+    """Task class for Boolean Questions Task."""
+
+    def __init__(self, path, max_seq_len, name, **kw):
+        super().__init__(name, n_classes=2, **kw)
+        self.path = path
+        self.max_seq_len = max_seq_len
+
+        self.train_data_text = None
+        self.val_data_text = None
+        self.test_data_text = None
+
+        self.scorer2 = F1Measure(1)
+        self.scorers = [self.scorer1, self.scorer2]
+        self.val_metric = "%s_acc_f1" % name
+        self.val_metric_decreases = False
+
+    def load_data(self):
+        """ Process the dataset located at path.  """
+
+        def _load_jsonl(data_file):
+            raw_data = [json.loads(d) for d in open(data_file, encoding="utf-8")]
+            data = []
+            for d in raw_data:
+                question = process_sentence(self._tokenizer_name, d["question"], self.max_seq_len)
+                passage = process_sentence(self._tokenizer_name, d["passage"], self.max_seq_len)
+                new_datum = {"question": question, "passage": passage}
+                answer = d["label"] if "label" in d else False
+                new_datum["label"] = answer
+                data.append(new_datum)
+            return data
+
+        self.train_data_text = _load_jsonl(os.path.join(self.path, "train.jsonl"))
+        self.val_data_text = _load_jsonl(os.path.join(self.path, "val.jsonl"))
+        self.test_data_text = _load_jsonl(os.path.join(self.path, "test.jsonl"))
+
+        self.sentences = [d["question"] for d in self.train_data_text + self.val_data_text] + [
+            d["passage"] for d in self.train_data_text + self.val_data_text
+        ]
+        log.info("\tFinished loading BoolQ data.")
+
+    def process_split(self, split, indexers) -> Iterable[Type[Instance]]:
+        """ Process split text into a list of AlleNNLP Instances. """
+        is_using_bert = "bert_wpm_pretokenized" in indexers
+
+        def _make_instance(d, idx):
+            new_d = {}
+            new_d["question_str"] = MetadataField(" ".join(d["question"][1:-1]))
+            new_d["passage_str"] = MetadataField(" ".join(d["passage"][1:-1]))
+            if not is_using_bert:
+                new_d["input1"] = sentence_to_text_field(d["passage"], indexers)
+                new_d["input2"] = sentence_to_text_field(d["question"], indexers)
+            else:  # BERT
+                psg_qst = d["passage"] + d["question"][1:]
+                new_d["inputs"] = sentence_to_text_field(psg_qst, indexers)
+            new_d["labels"] = LabelField(d["label"], label_namespace="labels", skip_indexing=True)
+            new_d["idx"] = LabelField(idx, label_namespace="idxs_tags", skip_indexing=True)
+            return Instance(new_d)
+
+        split = [split, itertools.count()]
+        instances = map(_make_instance, *split)
+        return instances
+
+    def get_metrics(self, reset=False):
+        """Get metrics specific to the task"""
+        acc = self.scorer1.get_metric(reset)
+        pcs, rcl, f1 = self.scorer2.get_metric(reset)
+        return {
+            "acc_f1": (acc + f1) / 2,
+            "accuracy": acc,
+            "f1": f1,
+            "precision": pcs,
+            "recall": rcl,
+        }
+
+    def count_examples(self, splits=["train", "val", "test"]):
+        """ Count examples in the dataset. """
+        self.example_counts = {}
+        for split in splits:
+            st = self.get_split_text(split)
+            self.example_counts[split] = len(st)

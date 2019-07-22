@@ -55,6 +55,7 @@ class BertEmbedderModule(nn.Module):
         tokenizer = BertTokenizer.from_pretrained(
             args.bert_model_name, cache_dir=cache_dir
         )
+
         self._sep_id = tokenizer.vocab["[SEP]"]
         self._pad_id = tokenizer.vocab["[PAD]"]
 

@@ -27,16 +27,15 @@ from allennlp.data.token_indexers import (
     TokenCharactersIndexer,
 )
 
-from .tasks import (
+from jiant.tasks import (
+    ALL_DIAGNOSTICS,
     ALL_COLA_NPI_TASKS,
     ALL_GLUE_TASKS,
     ALL_SUPERGLUE_TASKS,
     ALL_NLI_PROBING_TASKS,
-    ALL_TARG_VOC_TASKS
 )
-from .tasks import REGISTRY as TASKS_REGISTRY
-from .tasks.mt import MTTask
-from .utils import config, serialize, utils
+from jiant.tasks import REGISTRY as TASKS_REGISTRY
+from jiant.utils import config, serialize, utils
 
 # NOTE: these are not that same as AllenNLP SOS, EOS tokens
 SOS_TOK, EOS_TOK = "<SOS>", "<EOS>"
@@ -222,12 +221,12 @@ def _build_vocab(args, tasks, vocab_path: str):
     if args.force_include_wsj_vocabulary:
         # Add WSJ full vocabulary for PTB F1 parsing tasks.
         add_wsj_vocab(vocab, args.data_dir)
-    if args.openai_transformer:
+    if args.input_module == "gpt":
         # Add pre-computed BPE vocabulary for OpenAI transformer model.
         add_openai_bpe_vocab(vocab, "openai_bpe")
-    if args.bert_model_name:
+    if args.input_module.startswith("bert"):
         # Add pre-computed BPE vocabulary for BERT model.
-        add_bert_wpm_vocab(vocab, args.bert_model_name)
+        add_bert_wpm_vocab(vocab, args.input_module)
 
     vocab.save_to_files(vocab_path)
     log.info("\tSaved vocab to %s", vocab_path)
@@ -236,9 +235,9 @@ def _build_vocab(args, tasks, vocab_path: str):
 
 def build_indexers(args):
     indexers = {}
-    if not args.word_embs == "none":
+    if not args.input_module.startswith("bert") and args.input_module not in ["elmo", "gpt"]:
         indexers["words"] = SingleIdTokenIndexer()
-    if args.elmo:
+    if args.input_module == "elmo":
         indexers["elmo"] = ELMoTokenCharactersIndexer("elmo")
         assert args.tokenizer in {"", "MosesTokenizer"}
     if args.char_embs:
@@ -248,24 +247,22 @@ def build_indexers(args):
             f"CoVe model expects Moses tokenization (MosesTokenizer);"
             " you are using args.tokenizer = {args.tokenizer}"
         )
-    if args.openai_transformer:
-        assert not indexers, (
-            "OpenAI transformer is not supported alongside" " other indexers due to tokenization!"
-        )
-        assert args.tokenizer == "OpenAI.BPE", (
-            "OpenAI transformer is not supported alongside" " other indexers due to tokenization!"
-        )
+    if args.input_module == "gpt":
+        assert (
+            not indexers
+        ), "OpenAI transformer is not supported alongside other indexers due to tokenization."
+        assert (
+            args.tokenizer == "OpenAI.BPE"
+        ), "OpenAI transformer uses custom BPE tokenization. Set tokenizer=OpenAI.BPE."
         indexers["openai_bpe_pretokenized"] = SingleIdTokenIndexer("openai_bpe")
-    if args.bert_model_name:
-        assert not indexers, (
-            "BERT is not supported alongside" " other indexers due to tokenization!"
-        )
-        assert args.tokenizer == args.bert_model_name, (
+    if args.input_module.startswith("bert"):
+        assert not indexers, "BERT is not supported alongside other indexers due to tokenization."
+        assert args.tokenizer == args.input_module, (
             "BERT models use custom WPM tokenization for "
             "each model, so tokenizer must match the "
             "specified BERT model."
         )
-        indexers["bert_wpm_pretokenized"] = SingleIdTokenIndexer(args.bert_model_name)
+        indexers["bert_wpm_pretokenized"] = SingleIdTokenIndexer(args.input_module)
     return indexers
 
 
@@ -308,7 +305,9 @@ def build_tasks(args):
 
     # 3) build / load word vectors
     word_embs = None
-    if args.word_embs not in ["none", "scratch"]:
+    if args.input_module not in ["elmo", "gpt", "scratch"] and not args.input_module.startswith(
+        "bert"
+    ):
         emb_file = os.path.join(args.exp_dir, "embs.pkl")
         if args.reload_vocab or not os.path.exists(emb_file):
             word_embs = _build_embeddings(args, vocab, emb_file)
@@ -398,7 +397,6 @@ def _get_task(name, args, data_path, scratch_path):
     assert name in TASKS_REGISTRY, f"Task '{name:s}' not found!"
     task_cls, rel_path, task_kw = TASKS_REGISTRY[name]
     pkl_path = os.path.join(scratch_path, "tasks", f"{name:s}.{args.tokenizer:s}.pkl")
-    print(pkl_path)
     # TODO: refactor to always read from disk, even if task is constructed
     # here. This should avoid subtle bugs from deserialization issues.
     if os.path.isfile(pkl_path) and not args.reload_tasks:
@@ -411,8 +409,6 @@ def _get_task(name, args, data_path, scratch_path):
             # TODO: remove special case, replace with something general
             # to pass custom loader args to task.
             task_kw["probe_path"] = args["nli-prob"].probe_path
-        if name in ALL_TARG_VOC_TASKS:
-            task_kw["max_targ_v_size"] = args.max_targ_word_v_size
         task_src_path = os.path.join(data_path, rel_path)
         task = task_cls(
             task_src_path,
@@ -450,12 +446,7 @@ def get_tasks(args):
     target_task_names = parse_task_list_arg(args.target_tasks)
     # TODO: We don't want diagnostic tasks in train_task_names
     # but want to support glue/superglue task macros.
-    # A solution that doesn't rely on enumerating names would be nice.
-    pretrain_task_names = [
-        name
-        for name in pretrain_task_names
-        if name not in {"glue-diagnostic", "superglue-diagnostic"}
-    ]
+    pretrain_task_names = list(filter(lambda x: x not in ALL_DIAGNOSTICS, pretrain_task_names))
 
     task_names = sorted(set(pretrain_task_names + target_task_names))
     assert data_path is not None
@@ -497,12 +488,8 @@ def get_words(tasks):
 
     for task in tasks:
         log.info("\tCounting words for task %s.", task.name)
-        if isinstance(task, MTTask):
-            for src_sent, tgt_sent in task.get_sentences():
-                update_vocab_freqs(src_sent)
-        else:
-            for sentence in task.get_sentences():
-                update_vocab_freqs(sentence)
+        for sentence in task.get_sentences():
+            update_vocab_freqs(sentence)
 
     # This branch is meant for tasks that have *English* target sentences
     # (or more generally, same language source and target sentences)
@@ -571,9 +558,9 @@ def add_bert_wpm_vocab(vocab, bert_model_name):
     BertTokenizer has a convert_tokens_to_ids method, but this doesn't do
     anything special so we can just use the standard indexers.
     """
-    from ..data_utils.wordpiece import BertTokenizer
+    from pytorch_pretrained_bert import BertTokenizer
 
-    do_lower_case = bert_model_name.endswith("uncased")
+    do_lower_case = "uncased" in bert_model_name
     tokenizer = BertTokenizer.from_pretrained(bert_model_name, do_lower_case=do_lower_case)
     ordered_vocab = tokenizer.convert_ids_to_tokens(range(len(tokenizer.vocab)))
     log.info("BERT WPM vocab (model=%s): %d tokens", bert_model_name, len(ordered_vocab))

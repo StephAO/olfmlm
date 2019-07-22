@@ -7,8 +7,8 @@ import functools
 import logging as log
 import os
 
-from mosestokenizer import MosesDetokenizer
-from mosestokenizer import MosesTokenizer as NLTKMosesTokenizer
+from mosestokenizer import MosesTokenizer
+from mosestokenizer.moses import MosesTokenizer as NLTKMosesTokenizer
 from nltk.tokenize.simple import SpaceTokenizer
 
 
@@ -64,7 +64,7 @@ class MosesTokenizer(Tokenizer):
 def get_tokenizer(tokenizer_name):
     log.info(f"\tLoading Tokenizer {tokenizer_name}")
     if tokenizer_name.startswith("bert-"):
-        from ...data_utils.wordpiece import BertTokenizer
+        from pytorch_pretrained_bert import BertTokenizer
 
         do_lower_case = tokenizer_name.endswith("uncased")
         tokenizer = BertTokenizer.from_pretrained(tokenizer_name, do_lower_case=do_lower_case)
