@@ -90,7 +90,7 @@ class ReferentialGame(PreTrainedBertModel):
     """
     def __init__(self, config, config_small):
         super(ReferentialGame, self).__init__(config)
-        self.bert = BertModel(config)
+        self.bert = BertModel(config_small)
         self.receiver = BertModel(config_small)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
