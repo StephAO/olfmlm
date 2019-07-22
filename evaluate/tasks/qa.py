@@ -11,11 +11,11 @@ from allennlp.training.metrics import Average, F1Measure
 from allennlp.data.fields import LabelField, MetadataField
 from allennlp.data import Instance
 
-from jiant.utils.data_loaders import process_sentence
+from ..utils.data_loaders import process_sentence
 
-from jiant.tasks.tasks import Task
-from jiant.tasks.tasks import sentence_to_text_field
-from jiant.tasks.registry import register_task
+from .tasks.tasks import Task
+from .tasks.tasks import sentence_to_text_field
+from .tasks.registry import register_task
 
 
 def normalize_answer(s):

@@ -12,10 +12,10 @@ from allennlp.data import Instance
 from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.training.metrics import Average
 
-from jiant.utils.data_loaders import load_tsv
-from jiant.tasks.lm import LanguageModelingTask
-from jiant.tasks.registry import register_task
-from jiant.tasks.tasks import sentence_to_text_field
+from ..utils.data_loaders import load_tsv
+from .tasks.lm import LanguageModelingTask
+from .tasks.registry import register_task
+from .tasks.tasks import sentence_to_text_field
 
 
 class LanguageModelingParsingTask(LanguageModelingTask):

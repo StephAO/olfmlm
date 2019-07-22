@@ -2,9 +2,9 @@
 import logging as log
 import os
 
-from jiant.utils.data_loaders import load_tsv
-from jiant.tasks.registry import register_task
-from jiant.tasks.tasks import PairClassificationTask
+from ..utils.data_loaders import load_tsv
+from .tasks.registry import register_task
+from .tasks.tasks import PairClassificationTask
 
 
 @register_task("nps", rel_path="nps/")

@@ -23,9 +23,9 @@ from tensorboardX import SummaryWriter  # pylint: disable=import-error
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from jiant.evaluate import evaluate
-from jiant.utils import config
-from jiant.utils.utils import (
+from .evaluate import evaluate
+from .utils import config
+from .utils.utils import (
     assert_for_log,
     find_last_checkpoint_epoch,
     check_for_previous_checkpoints,

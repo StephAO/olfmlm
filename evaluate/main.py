@@ -21,13 +21,13 @@ import time
 import copy
 import torch
 
-from jiant import evaluate
-from jiant.models import build_model
-from jiant.preprocess import build_tasks
-from jiant import tasks as task_modules
-from jiant.trainer import build_trainer
-from jiant.utils import config
-from jiant.utils.utils import (
+from . import evaluate
+from .models import build_model
+from .preprocess import build_tasks
+from . import tasks as task_modules
+from .trainer import build_trainer
+from .utils import config
+from .utils.utils import (
     assert_for_log,
     load_model_state,
     maybe_make_dir,

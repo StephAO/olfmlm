@@ -11,8 +11,8 @@ import pandas as pd
 import torch
 from allennlp.data.iterators import BasicIterator
 from allennlp.nn.util import move_to_device
-from jiant import tasks as tasks_module
-from jiant.tasks.tasks import (
+from . import tasks as tasks_module
+from .tasks.tasks import (
     BooleanQuestionTask,
     CommitmentTask,
     COPATask,
@@ -21,8 +21,8 @@ from jiant.tasks.tasks import (
     WinogradCoreferenceTask,
     GLUEDiagnosticTask,
 )
-from jiant.tasks.qa import MultiRCTask, ReCoRDTask
-from jiant.tasks.edge_probing import EdgeProbingTask
+from .tasks.qa import MultiRCTask, ReCoRDTask
+from .tasks.edge_probing import EdgeProbingTask
 
 
 LOG_INTERVAL = 30

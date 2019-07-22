@@ -17,35 +17,35 @@ from allennlp.modules.token_embedders import Embedding, TokenCharactersEncoder
 from allennlp.training.metrics import Average
 from sklearn.metrics import mean_squared_error
 
-from jiant.allennlp_mods.elmo_text_field_embedder import (
+from .allennlp_mods.elmo_text_field_embedder import (
     ElmoTextFieldEmbedder,
     ElmoTokenEmbedderWrapper,
 )
 
-from jiant.modules.edge_probing import EdgeClassifierModule
-from jiant.modules.simple_modules import (
+from .modules.edge_probing import EdgeClassifierModule
+from .modules.simple_modules import (
     Pooler,
     Classifier,
     SingleClassifier,
     PairClassifier,
     NullPhraseLayer,
 )
-from jiant.modules.attn_pair_encoder import AttnPairEncoder
-from jiant.modules.sentence_encoder import SentenceEncoder
-from jiant.modules.bilm_encoder import BiLMEncoder
-from jiant.modules.bow_sentence_encoder import BoWSentEncoder
-from jiant.modules.elmo_character_encoder import ElmoCharacterEncoder
-from jiant.modules.onlstm_phrase_layer import ONLSTMPhraseLayer
-from jiant.modules.prpn_phrase_layer import PRPNPhraseLayer
-from jiant.modules.onlstm.ON_LSTM import ONLSTMStack
-from jiant.modules.prpn.PRPN import PRPN
-from jiant.modules.seq2seq_decoder import Seq2SeqDecoder
-from jiant.modules.span_modules import SpanClassifierModule
-from jiant.tasks.edge_probing import EdgeProbingTask
-from jiant.tasks.lm import LanguageModelingTask
-from jiant.tasks.lm_parsing import LanguageModelingParsingTask
-from jiant.tasks.qa import MultiRCTask, ReCoRDTask
-from jiant.tasks.tasks import (
+from .modules.attn_pair_encoder import AttnPairEncoder
+from .modules.sentence_encoder import SentenceEncoder
+from .modules.bilm_encoder import BiLMEncoder
+from .modules.bow_sentence_encoder import BoWSentEncoder
+from .modules.elmo_character_encoder import ElmoCharacterEncoder
+from .modules.onlstm_phrase_layer import ONLSTMPhraseLayer
+from .modules.prpn_phrase_layer import PRPNPhraseLayer
+from .modules.onlstm.ON_LSTM import ONLSTMStack
+from .modules.prpn.PRPN import PRPN
+from .modules.seq2seq_decoder import Seq2SeqDecoder
+from .modules.span_modules import SpanClassifierModule
+from .tasks.edge_probing import EdgeProbingTask
+from .tasks.lm import LanguageModelingTask
+from .tasks.lm_parsing import LanguageModelingParsingTask
+from .tasks.qa import MultiRCTask, ReCoRDTask
+from .tasks.tasks import (
     GLUEDiagnosticTask,
     MultipleChoiceTask,
     PairClassificationTask,
@@ -59,8 +59,8 @@ from jiant.tasks.tasks import (
     TaggingTask,
     WiCTask,
 )
-from jiant.utils import config
-from jiant.utils.utils import (
+from .utils import config
+from .utils.utils import (
     assert_for_log,
     get_batch_size,
     get_batch_utilization,
