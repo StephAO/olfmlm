@@ -4,7 +4,7 @@ RANK=0
 WORLD_SIZE=1
 
 python3 -m sentence-encoders.pretrain_bert \
-    --batch-size 24 \
+    --batch-size 32 \
     --tokenizer-type BertWordPieceTokenizer \
     --cache-dir cache_dir \
     --tokenizer-model-type bert-base-uncased \

@@ -26,8 +26,9 @@ TRAIN_DATA = 0
 VAL_DATA = 1
 TEST_DATA = 2
 
-dataset_types = {
+dataset_types = { 
     'bert': bert_sentencepair_dataset,
+    'bertmlm': bert_sentencepair_dataset,
     'split': bert_split_sentences_dataset,
     'corrupt': bert_corrupt_sentences_dataset,
     'referential_game': bert_rg_sentences_dataset

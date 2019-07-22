@@ -154,11 +154,16 @@ def forward_step(data, model, criterion, args):
     tokens, types, sentence_label, loss_mask, lm_labels, padding_mask = batch
     # Forward model.
     att_mask = (1 - padding_mask[0], 1 - padding_mask[1]) if isinstance(padding_mask, tuple) else 1 - padding_mask
-    mlm, sentence = model(tokens, types, att_mask,
+    output = model(tokens, types, att_mask,
                           checkpoint_activations=args.checkpoint_activations)
 
-    sentence = sentence if args.model_type == "referential_game" else sentence.view(-1, 2)
-    sentence_loss = criterion(sentence.contiguous().float(),
+    if args.model_type == "bertmlm":
+        mlm = output
+        sentence_loss = torch.Tensor([0]).cuda()
+    else:
+        mlm, sentence = output
+        sentence = sentence if args.model_type == "referential_game" else sentence.view(-1, 2)
+        sentence_loss = criterion(sentence.contiguous().float(),
                               sentence_label.view(-1).contiguous()).mean()
 
     if args.model_type in ["split", "referential_game"]:
@@ -190,7 +195,10 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
     """Backward step."""
 
     # Total loss.
-    loss = lm_loss + nsp_loss
+    if args.model_type == "bertmlm":
+        loss = lm_loss
+    else:
+        loss = lm_loss + nsp_loss
 
     # Backward pass.
     optimizer.zero_grad()
