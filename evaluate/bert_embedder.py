@@ -36,6 +36,32 @@ def _get_seg_ids(ids, sep_id):
         row[: idx + 1].fill_(0)
     return seg_ids
 
+def _split_sentence(ids, cls_id, sep_id, pad_id):
+    """ Splits pairs of sentences into two sentences
+    Searches for index SEP_ID in the tensor
+
+    args:
+        ids (torch.LongTensor): batch of token IDs
+
+    returns:
+        seg_ids (torch.LongTensor): batch of segment IDs
+
+    example:
+    > sents = ["[CLS]", "I", "am", "a", "cat", ".", "[SEP]", "You", "like", "cats", "?", "[SEP]"]
+    > token_tensor = torch.Tensor([[vocab[w] for w in sent]]) # a tensor of token indices
+    > seg_ids = _get_seg_ids(token_tensor, sep_id=102) # BERT [SEP] ID
+    > assert seg_ids == torch.LongTensor([0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+    """
+    sep_idxs = (ids == sep_id).nonzero()[:, 1]
+    if sep_idxs.shape[0] == ids.shape[0]:
+        return ids, None
+    sent_1, sent_2 = torch.full_like(ids, pad_id), torch.full_like(ids, pad_id)
+    for i, (row, idx_1, idx_2) in enumerate(zip(ids, sep_idxs[::2], sep_idxs[1::2])):
+        sent_1[i, :idx_1 + 1] = row[:idx_1 + 1]
+        sent_2[i, 0] = cls_id
+        sent_2[i, 1:(idx_2 - idx_1) + 1] = row[idx_1 + 1:idx_2 + 1]
+    return sent_1, sent_2
+
 
 class BertEmbedderModule(nn.Module):
     """ Wrapper for BERT module to fit into jiant APIs. """
@@ -56,6 +82,9 @@ class BertEmbedderModule(nn.Module):
             args.input_module, cache_dir=cache_dir
         )
 
+        self.split = args.split
+
+        self._cls_id = tokenizer.vocab["[CLS]"]
         self._sep_id = tokenizer.vocab["[SEP]"]
         self._pad_id = tokenizer.vocab["[PAD]"]
 
@@ -132,11 +161,25 @@ class BertEmbedderModule(nn.Module):
         if self.embeddings_mode != "only":
             # encoded_layers is a list of layer activations, each of which is
             # <float32> [batch_size, seq_len, output_dim]
-            token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
-            encoded_layers, _ = self.model(
-                ids, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=True
-            )
-            h_enc = encoded_layers[-1]
+            if self.split:
+                sentence_1, sentence_2 = _split_sentence(ids, self._cls_id, self._sep_id, self._pad_id)
+                token_types = torch.zeros_like(ids)
+                u, _ = self.model(
+                    sentence_1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False
+                )
+                v, _ = self.model(
+                    sentence_2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False
+                )
+
+                h_enc = torch.cat([u, v, u - v, u * v], 1)
+
+            else:
+                token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
+
+                encoded_layers, _ = self.model(
+                    ids, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=True
+                )
+                h_enc = encoded_layers[-1]
 
         if self.embeddings_mode in ["none", "top"]:
             h = h_enc
