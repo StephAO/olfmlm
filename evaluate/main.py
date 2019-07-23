@@ -337,7 +337,7 @@ def initial_setup(args, cl_args):
     if EMAIL_NOTIFIER:
         EMAIL_NOTIFIER(body="Starting run.", prefix="")
 
-    _log_git_info()
+    #_log_git_info()
     config_file = os.path.join(args.run_dir, "params.conf")
     config.write_params(args, config_file)
 
@@ -526,7 +526,7 @@ def main(cl_arguments):
             last_task_index = [task.name for task in target_tasks_to_train].index(task_to_restore)
             target_tasks_to_train = target_tasks_to_train[last_task_index:]
         for task in target_tasks_to_train:
-            # Skip tasks that should not be trained on.
+            # Skip tasks that should not be trained on.     
             if task.eval_only_task:
                 continue
 

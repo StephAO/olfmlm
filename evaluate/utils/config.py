@@ -11,7 +11,7 @@ from typing import Iterable, Sequence, Type, Union
 
 import pyhocon
 
-from jiant.utils import hocon_writer
+from . import hocon_writer
 
 
 log.basicConfig(format="%(asctime)s: %(message)s", datefmt="%m/%d %I:%M:%S %p", level=log.INFO)
@@ -121,6 +121,7 @@ def params_from_file(config_files: Union[str, Iterable[str]], overrides: str = N
     if isinstance(config_files, str):
         config_files = [config_files]
     for config_file in config_files:
+        config_file = os.path.join("sentence-encoders/evaluate/config", config_file)
         with open(config_file) as fd:
             log.info("Loading config from %s", config_file)
             config_string += fd.read()

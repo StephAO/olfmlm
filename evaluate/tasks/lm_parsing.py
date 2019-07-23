@@ -13,9 +13,9 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.training.metrics import Average
 
 from ..utils.data_loaders import load_tsv
-from .tasks.lm import LanguageModelingTask
-from .tasks.registry import register_task
-from .tasks.tasks import sentence_to_text_field
+from .lm import LanguageModelingTask
+from .registry import register_task
+from .tasks import sentence_to_text_field
 
 
 class LanguageModelingParsingTask(LanguageModelingTask):

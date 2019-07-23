@@ -15,7 +15,7 @@ from overrides import overrides
 from torch.nn.modules.linear import Linear
 from torch.nn.modules.rnn import LSTMCell
 
-from jiant.modules.simple_modules import Pooler
+from ..modules.simple_modules import Pooler
 
 
 class Seq2SeqDecoder(Model):

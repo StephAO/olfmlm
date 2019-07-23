@@ -13,8 +13,8 @@ from allennlp.training.metrics import BooleanAccuracy, F1Measure
 from ..allennlp_mods.correlation import FastMatthews
 from ..allennlp_mods.multilabel_field import MultiLabelField
 from ..utils import utils
-from .tasks.registry import register_task  # global task registry
-from .tasks.tasks import Task, sentence_to_text_field
+from .registry import register_task  # global task registry
+from .tasks import Task, sentence_to_text_field
 
 ##
 # Class definitions for edge probing. See below for actual task registration.

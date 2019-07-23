@@ -24,8 +24,8 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.training.metrics import Average, BooleanAccuracy, CategoricalAccuracy, F1Measure
 from sklearn.metrics import mean_squared_error
 
-from .allennlp_mods.correlation import Correlation
-from .allennlp_mods.numeric_field import NumericField
+from ..allennlp_mods.correlation import Correlation
+from ..allennlp_mods.numeric_field import NumericField
 from ..utils import utils
 from ..utils.data_loaders import (
     get_tag_list,
@@ -36,7 +36,7 @@ from ..utils.data_loaders import (
     load_pair_nli_jsonl,
 )
 from ..utils.tokenizers import get_tokenizer
-from .tasks.registry import register_task  # global task registry
+from .registry import register_task  # global task registry
 from ..metrics.winogender_metrics import GenderParity
 
 """Define the tasks and code for loading their data.

@@ -45,7 +45,7 @@ class BertEmbedderModule(nn.Module):
 
         if args.bert_use_pretrain:
             self.model = BertModel.from_pretrained(
-                args.bert_model_name, cache_dir=cache_dir
+                args.input_module, cache_dir=cache_dir
             )
         else:
             self.config = BertConfig(args.bert_config_file)
@@ -53,7 +53,7 @@ class BertEmbedderModule(nn.Module):
         self.embeddings_mode = args.bert_embeddings_mode
 
         tokenizer = BertTokenizer.from_pretrained(
-            args.bert_model_name, cache_dir=cache_dir
+            args.input_module, cache_dir=cache_dir
         )
 
         self._sep_id = tokenizer.vocab["[SEP]"]

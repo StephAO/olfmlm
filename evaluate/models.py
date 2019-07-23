@@ -227,7 +227,7 @@ def build_model(args, vocab, pretrained_embs, tasks):
     elif args.input_module.startswith("bert"):
         # Note: incompatible with other embedders, but logic in preprocess.py
         # should prevent these from being enabled anyway.
-        from .bert.utils import BertEmbedderModule
+        from .bert_embedder import BertEmbedderModule
 
         log.info(f"Using BERT model ({args.input_module}).")
         cove_layer = None

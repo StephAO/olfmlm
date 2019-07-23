@@ -11,7 +11,7 @@ from allennlp.models.model import Model
 from allennlp.nn import InitializerApplicator, util
 from allennlp.modules import Highway, TimeDistributed
 
-from ..bert.utils import BertEmbedderModule
+from ..bert_embedder import BertEmbedderModule
 from ..tasks.tasks import PairClassificationTask, PairRegressionTask
 from ..utils import utils
 from .simple_modules import NullPhraseLayer

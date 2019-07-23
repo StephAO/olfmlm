@@ -8,7 +8,7 @@ import logging as log
 import os
 
 from mosestokenizer import MosesTokenizer
-from mosestokenizer.moses import MosesTokenizer as NLTKMosesTokenizer
+from mosestokenizer import MosesTokenizer as NLTKMosesTokenizer
 from nltk.tokenize.simple import SpaceTokenizer
 
 

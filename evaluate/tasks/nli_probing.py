@@ -3,8 +3,8 @@ import logging as log
 import os
 
 from ..utils.data_loaders import load_tsv
-from .tasks.registry import register_task
-from .tasks.tasks import PairClassificationTask
+from .registry import register_task
+from .tasks import PairClassificationTask
 
 
 @register_task("nps", rel_path="nps/")

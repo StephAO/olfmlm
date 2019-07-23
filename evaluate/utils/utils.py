@@ -18,7 +18,7 @@ from allennlp.common.checks import ConfigurationError
 from allennlp.common.params import Params
 from allennlp.modules.seq2seq_encoders.seq2seq_encoder import Seq2SeqEncoder
 from allennlp.nn.util import device_mapping, masked_softmax
-from mosestokenizer import MosesTokenizer
+from mosestokenizer import MosesDetokenizer
 from torch.autograd import Variable
 from torch.nn import Dropout, Linear, Parameter, init
 
@@ -196,7 +196,7 @@ def select_relevant_print_args(args):
     from pathlib import Path
 
     exp_config_file = os.path.join(args.run_dir, "params.conf")
-    root_directory = Path(__file__).parents[2]
+    root_directory = Path(__file__).parents[1]
     defaults_file = os.path.join(str(root_directory) + "/config/defaults.conf")
     exp_basedir = os.path.dirname(exp_config_file)
     default_basedir = os.path.dirname(defaults_file)

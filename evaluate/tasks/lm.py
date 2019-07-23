@@ -9,8 +9,8 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.training.metrics import Average
 
 from ..utils.data_loaders import process_sentence
-from .tasks.registry import register_task
-from .tasks.tasks import (
+from .registry import register_task
+from .tasks import (
     UNK_TOK_ALLENNLP,
     UNK_TOK_ATOMIC,
     SequenceGenerationTask,

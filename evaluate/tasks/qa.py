@@ -13,9 +13,9 @@ from allennlp.data import Instance
 
 from ..utils.data_loaders import process_sentence
 
-from .tasks.tasks import Task
-from .tasks.tasks import sentence_to_text_field
-from .tasks.registry import register_task
+from .tasks import Task
+from .tasks import sentence_to_text_field
+from .registry import register_task
 
 
 def normalize_answer(s):
