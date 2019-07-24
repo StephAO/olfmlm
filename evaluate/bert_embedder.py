@@ -193,7 +193,7 @@ class BertEmbedderModule(nn.Module):
     def get_output_dim(self):
         if self.embeddings_mode == "cat":
             return 2 * self.model.config.hidden_size
-        elif self.split and self.embeddings_mode == "none":
+        elif self.split:
             return 4 * self.model.config.hidden_size
         else:
             return self.model.config.hidden_size
