@@ -162,24 +162,17 @@ class BertEmbedderModule(nn.Module):
             # encoded_layers is a list of layer activations, each of which is
             # <float32> [batch_size, seq_len, output_dim]
             if self.split:
-                sentence_1, sentence_2 = _split_sentence(ids, self._cls_id, self._sep_id, self._pad_id)
+                s1, s2 = _split_sentence(ids, self._cls_id, self._sep_id, self._pad_id)
                 token_types = torch.zeros_like(ids)
-                u, _ = self.model(
-                    sentence_1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False
-                )
-                v, _ = self.model(
-                    sentence_2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False
-                )
-
-                h_enc = torch.cat([u, v, u - v, u * v], 1)
+                u, _ = self.model(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)
+                v = torch.zeros_like(u) if s2 is None else \
+                    self.model(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
+                h_enc = torch.cat([u, v, u - v, u * v], 2)
 
             else:
                 token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
-
-                encoded_layers, _ = self.model(
-                    ids, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=True
-                )
-                h_enc = encoded_layers[-1]
+                u, _ = self.model(ids, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)
+                h_enc = u
 
         if self.embeddings_mode in ["none", "top"]:
             h = h_enc
@@ -188,7 +181,9 @@ class BertEmbedderModule(nn.Module):
         elif self.embeddings_mode == "cat":
             h = torch.cat([h_enc, h_lex], dim=2)
         elif self.embeddings_mode == "mix":
-            h = self.scalar_mix([h_lex] + encoded_layers, mask=mask)
+            log.error("Oops, this mode has been disable, go code the fix")
+            exit(0)
+            # h = self.scalar_mix([h_lex] + encoded_layers, mask=mask)
         else:
             raise NotImplementedError(f"embeddings_mode={self.embeddings_mode}" " not supported.")
 
@@ -198,5 +193,7 @@ class BertEmbedderModule(nn.Module):
     def get_output_dim(self):
         if self.embeddings_mode == "cat":
             return 2 * self.model.config.hidden_size
+        elif self.split and self.embeddings_mode == "none":
+            return 4 * self.model.config.hidden_size
         else:
             return self.model.config.hidden_size
