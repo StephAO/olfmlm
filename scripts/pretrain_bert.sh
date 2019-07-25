@@ -27,4 +27,8 @@ python3 -m sentence-encoders.pretrain_bert \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
     --save /scratch/gobi1/stephaneao/trained_berts/bert_no_nsp/ \
     --model-type 'bertmlm' \
-    --track-results True
+    --track-results True \
+    --fp16 \
+    --fp32-layernorm \
+    --fp32-embedding \
+    --hysteresis 2 \
