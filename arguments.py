@@ -293,6 +293,7 @@ def get_args():
     # The args fp32_* or fp16_* meant to be active when the
     # args fp16 is set. So the default behaviour should all
     # be false.
+    print(args.fp16)
     if not args.fp16:
         args.fp32_embedding = False
         args.fp32_tokentypes = False
