@@ -15,7 +15,7 @@
 
 """Pretrain BERT"""
 
-from apex import amp
+# from apex import amp
 from comet_ml import Experiment
 import os
 import random
@@ -234,8 +234,8 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
     else:
         loss.backward()
 
-    with amp.scale_loss(loss, optimizer) as scaled_loss:
-        scaled_loss.backward()
+    # with amp.scale_loss(loss, optimizer) as scaled_loss:
+    #     scaled_loss.backward()
     # loss.backward()
 
     # Reduce across processes.
@@ -466,7 +466,7 @@ def main():
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
 
-    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+    # model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:
