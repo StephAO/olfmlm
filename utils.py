@@ -120,8 +120,6 @@ def load_checkpoint(model, optimizer, lr_scheduler, args):
         optim_sd, lr_sd = torch.load(optim_path, map_location='cpu')
         optimizer.load_state_dict(optim_sd)
         lr_scheduler.load_state_dict(lr_sd)
-    elif args.fp16:
-        optimizer._model_params_to_master_params()
 
     rng_path = None
     if args.load_rng:

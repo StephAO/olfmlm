@@ -141,8 +141,8 @@ class BertConfig(object):
                  max_position_embeddings=512,
                  type_vocab_size=2,
                  initializer_range=0.02,
-                 fp32_layernorm=False,
-                 fp32_embedding=False,
+                 fp32_layernorm=True,
+                 fp32_embedding=True,
                  fp32_tokentypes=False,
                  layernorm_epsilon=1e-12):
         """Constructs BertConfig.
@@ -266,9 +266,6 @@ class BertEmbeddings(nn.Module):
 
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
-        self.fp32_layernorm = config.fp32_layernorm
-        self.fp32_embedding = config.fp32_embedding
-        self.fp32_tokentypes = config.fp32_tokentypes
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -283,35 +280,8 @@ class BertEmbeddings(nn.Module):
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
-        if not self.fp32_tokentypes:
-            embeddings = words_embeddings + position_embeddings + token_type_embeddings
-            if self.fp32_embedding and not self.fp32_layernorm:
-                embeddings = embeddings.half()
-            previous_type = embeddings.type()
-            if self.fp32_layernorm:
-                embeddings = embeddings.float()
-            embeddings = self.LayerNorm(embeddings)
-            if self.fp32_layernorm:
-                if self.fp32_embedding:
-                    embeddings = embeddings.half()
-                else:
-                    embeddings = embeddings.type(previous_type)
-        else:
-            embeddings = words_embeddings.float() + position_embeddings.float() + token_type_embeddings.float()
-            if self.fp32_tokentypes and not self.fp32_layernorm:
-                embeddings = embeddings.half()
-            previous_type = embeddings.type()
-            if self.fp32_layernorm:
-                embeddings = embeddings.float()
-            embeddings = self.LayerNorm(embeddings)
-            if self.fp32_layernorm:
-                if self.fp32_tokentypes:
-                    embeddings = embeddings.half()
-                else:
-                    embeddings = embeddings.type(previous_type)
-
-        # embeddings = words_embeddings + position_embeddings + token_type_embeddings
-        # embeddings = self.LayerNorm(embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
+        embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
 
@@ -544,28 +514,10 @@ class BertLMPredictionHead(nn.Module):
                                  bias=False)
         self.decoder.weight = bert_model_embedding_weights
         self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
-        self.fp32_embedding = config.fp32_embedding
-        self.fp32_layernorm = config.fp32_layernorm
-
-        def convert_to_type(tensor):
-            if self.fp32_embedding:
-                return tensor.half()
-            else:
-                return tensor
-
-        self.type_converter = convert_to_type
-        self.converted = False
 
     def forward(self, hidden_states):
-        if not self.converted:
-            self.converted = True
-            if self.fp32_embedding:
-                self.transform.half()
-                if self.fp32_layernorm:
-                    self.transform.LayerNorm.float()
-        hidden_states = self.transform(self.type_converter(hidden_states))
-        # hidden_states = self.decoder(hidden_states) + self.bias
-        hidden_states = F.linear(self.type_converter(hidden_states), self.type_converter(self.decoder.weight), self.type_converter(self.bias))
+        hidden_states = self.transform(hidden_states)
+        hidden_states = self.decoder(hidden_states) + self.bias
         return hidden_states
 
 class BertOnlyMLMHead(nn.Module):
@@ -816,7 +768,7 @@ class BertModel(PreTrainedBertModel):
         # positions we want to attend and -10000.0 for masked positions.
         # Since we are adding it to the raw scores before the softmax, this is
         # effectively the same as removing these entirely.
-        extended_attention_mask = extended_attention_mask.to(dtype=next(self.encoder.parameters()).dtype) # fp16 compatibility
+        extended_attention_mask = extended_attention_mask.to(dtype=next(self.encoder.parameters()).dtype)
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
         embedding_output = self.embeddings(input_ids, token_type_ids)

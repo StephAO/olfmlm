@@ -24,8 +24,6 @@ import torch
 
 from .arguments import get_args
 from .configure_data import configure_data
-from .fp16 import FP16_Module
-from .fp16 import FP16_Optimizer
 from .learning_rates import AnnealingLR
 from .model import BertModel
 from .model import get_params_for_weight_decay_optimization
@@ -47,20 +45,6 @@ def get_model(tokenizer, args):
     # GPU allocation.
     model.cuda(torch.cuda.current_device())
 
-    # Fp16 conversion.
-    if args.fp16:
-        model = FP16_Module(model)
-        if args.fp32_embedding:
-            model.module.model.bert.embeddings.word_embeddings.float()
-            model.module.model.bert.embeddings.position_embeddings.float()
-            model.module.model.bert.embeddings.token_type_embeddings.float()
-        if args.fp32_tokentypes:
-            model.module.model.bert.embeddings.token_type_embeddings.float()
-        if args.fp32_layernorm:
-            for name, _module in model.named_modules():
-                if 'LayerNorm' in name:
-                    _module.float()
-
     # Wrap model for distributed training.
     if args.world_size > 1:
         model = DDP(model)
@@ -72,7 +56,7 @@ def get_optimizer(model, args):
     """Set up the optimizer."""
 
     # Build parameter groups (weight decay and non-decay).
-    while isinstance(model, (DDP, FP16_Module)):
+    while isinstance(model, DDP):
         model = model.module
 
     param_groups = model.get_params()
@@ -80,16 +64,6 @@ def get_optimizer(model, args):
     # Use Adam.
     optimizer = Adam(param_groups,
                      lr=args.lr, weight_decay=args.weight_decay)
-
-    # Wrap into fp16 optimizer.
-    if args.fp16:
-        optimizer = FP16_Optimizer(optimizer,
-                                   static_loss_scale=args.loss_scale,
-                                   dynamic_loss_scale=args.dynamic_loss_scale,
-                                   dynamic_loss_args={
-                                       'scale_window': args.loss_scale_window,
-                                       'min_scale':args.min_scale,
-                                       'delayed_shift': args.hysteresis})
 
     return optimizer
 
@@ -229,10 +203,6 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
 
     # Backward pass.
     optimizer.zero_grad()
-    if args.fp16:
-        optimizer.backward(loss, update_master_grads=False)
-    else:
-        loss.backward()
 
     # with amp.scale_loss(loss, optimizer) as scaled_loss:
     #     scaled_loss.backward()
@@ -250,16 +220,9 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
         lm_loss_reduced = reduced_losses[0]
         nsp_loss_reduced = reduced_losses[1]
 
-    # Update master gradients.
-    if args.fp16:
-        optimizer.update_master_grads()
-
     # Clipping gradients helps prevent the exploding gradient.
     if args.clip_grad > 0:
-        if not args.fp16:
-            torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
-        else:
-            optimizer.clip_master_grads(args.clip_grad)
+        torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
     return lm_loss_reduced, nsp_loss_reduced
 
@@ -279,10 +242,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, args):
 
     # Update learning rate.
     skipped_iter = 0
-    if not (args.fp16 and optimizer.overflow):
-        lr_scheduler.step()
-    else:
-        skipped_iter = 1
+    lr_scheduler.step()
 
     return lm_loss_reduced, nsp_loss_reduced, skipped_iter
 
@@ -338,9 +298,6 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             log_string += ' learning rate {:.3E} |'.format(learning_rate)
             log_string += ' lm loss {:.3E} |'.format(avg_lm_loss)
             log_string += ' nsp loss {:.3E} |'.format(avg_nsp_loss)
-            if args.fp16:
-                log_string += ' loss scale {:.1f} |'.format(
-                    optimizer.loss_scale)
             print(log_string, flush=True)
             total_nsp_loss = 0.0
             total_lm_loss = 0.0

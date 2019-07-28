@@ -142,33 +142,6 @@ def add_training_args(parser):
 
     return parser
 
-def add_fp16_config_args(parser):
-    """Mixed precision arguments."""
-
-    group = parser.add_argument_group('fp16', 'fp16 configurations')
-    group.add_argument('--fp16', action='store_true',
-                       help='Run model in fp16 mode')
-    group.add_argument('--fp32-embedding', action='store_true',
-                       help='embedding in fp32')
-    group.add_argument('--fp32-layernorm', action='store_true',
-                       help='layer norm in fp32')
-    group.add_argument('--fp32-tokentypes', action='store_true',
-                       help='embedding token types in fp32')
-    group.add_argument('--fp32-allreduce', action='store_true',
-                       help='all-reduce in fp32')
-    group.add_argument('--hysteresis', type=int, default=2,
-                       help='hysteresis for dynamic loss scaling')
-    group.add_argument('--loss-scale', type=float, default=None,
-                       help='Static loss scaling, positive power of 2 '	
-                       'values can improve fp16 convergence. If None, dynamic'	
-                       'loss scaling is used.')
-    group.add_argument('--loss-scale-window', type=float, default=1000,
-                       help='Window over which to raise/lower dynamic scale')
-    group.add_argument('--min-scale', type=float, default=1,
-                       help='Minimum loss scale for dynamic loss scale')
-
-    return parser
-
 
 def add_evaluation_args(parser):
     """Evaluation arguments."""
@@ -277,7 +250,6 @@ def get_args():
     parser = add_training_args(parser)
     parser = add_evaluation_args(parser)
     parser = add_data_args(parser)
-    parser = add_fp16_config_args(parser)
 
     args = parser.parse_args()
 
@@ -285,18 +257,11 @@ def get_args():
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
 
-    args.dynamic_loss_scale = False
-    if args.loss_scale is None:
-        args.dynamic_loss_scale = True
-        print(' > using dynamic loss scaling')
+    args.dynamic_loss_scale = True
 
-    # The args fp32_* or fp16_* meant to be active when the
-    # args fp16 is set. So the default behaviour should all
-    # be false.
-    if not args.fp16:
-        args.fp32_embedding = False
-        args.fp32_tokentypes = False
-        args.fp32_layernorm = False
+    args.fp32_embedding = False
+    args.fp32_tokentypes = False
+    args.fp32_layernorm = False
 
     print_args(args)
     return args
