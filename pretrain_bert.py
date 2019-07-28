@@ -200,11 +200,11 @@ def forward_step(data, model, criterion, args):
     mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
                          lm_labels.contiguous().view(-1).contiguous())
 
-    if args.model_type == "corrupt":
-        # Don't learn masked language from corrupted sentences
-        lm_loss_mask = torch.FloatTensor(1 - np.array(sentence_label)).unsqueeze(1).cuda()
-        lm_loss_mask = lm_loss_mask.repeat(1, args.seq_length).view(-1)
-        mlm_loss = lm_loss_mask * mlm_loss
+    # if args.model_type == "corrupt":
+    #     # Don't learn masked language from corrupted sentences
+    #     lm_loss_mask = torch.FloatTensor(1 - np.array(sentence_label)).unsqueeze(1).cuda()
+    #     lm_loss_mask = lm_loss_mask.repeat(1, args.seq_length).view(-1)
+    #     mlm_loss = lm_loss_mask * mlm_loss
 
     loss_mask = loss_mask.contiguous()
     loss_mask = loss_mask.view(-1)

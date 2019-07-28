@@ -574,7 +574,7 @@ class bert_dataset(data.Dataset):
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
-    def create_masked_lm_predictions(self, a, b, mask_lm_prob, max_preds_per_seq, vocab_words, rng):
+    def create_masked_lm_predictions(self, a, b, mask_lm_prob, max_preds_per_seq, vocab_words, rng, do_not_mask_tokens=[]):
         """
         Mask sequence pair for BERT training according to:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L338
@@ -604,6 +604,8 @@ class bert_dataset(data.Dataset):
         mask_labels = [-1] * len(output_tokens)
 
         for idx in sorted(cand_indices[:num_to_predict]):
+            if idx in do_not_mask_tokens:
+                continue
             mask[idx] = 1
             label = self.mask_token(idx, output_tokens, output_types, vocab_words, rng)
             mask_labels[idx] = label
@@ -801,7 +803,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
     def __init__(self, *args, **kwargs):
         super().__init__(False, *args, **kwargs)
         self.corrupt_per_sentence = 0.15
-        self.corrupt_p = 0.3
+        self.corrupt_p = 0.5
 
     def __len__(self):
         return self.dataset_size
@@ -820,12 +822,12 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         corrupted = None
 
         while (corrupted is None) or (len(a) < 1):
-            a, corrupted = self.create_sentence(target_seq_length, rng)
+            a, corrupted, ids = self.create_sentence(target_seq_length, rng)
         # truncate sentences to max_seq_len
         a = self.truncate_seq(a, self.max_seq_len, rng)
 
         # Mask and pad sentence pair
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
+        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng, do_not_mask_tokens=ids)
         sample = {'text': np.array(tokens), 'sent_label': int(corrupted), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
 
         return sample
@@ -867,15 +869,15 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         if rng.random() < self.corrupt_p:
             x = rng.random()
             if x < 0.25:
-                tokens, corrupted = self.corrupt_permute(tokens, rng)
+                tokens, corrupted, ids = self.corrupt_permute(tokens, rng)
             elif x < 0.5:
-                tokens, corrupted = self.corrupt_replace(tokens, rng)
+                tokens, corrupted, ids = self.corrupt_replace(tokens, rng)
             elif x < 0.75:
-                tokens, corrupted = self.corrupt_insert(tokens, rng)
+                tokens, corrupted, ids = self.corrupt_insert(tokens, rng)
             else:
-                tokens, corrupted = self.corrupt_delete(tokens, rng)
+                tokens, corrupted, ids = self.corrupt_delete(tokens, rng)
 
-        return tokens, corrupted
+        return tokens, corrupted, ids
 
     def corrupt_replace(self, tokens, rng):
         cand_indices = [idx for idx in range(len(tokens))]
@@ -886,20 +888,22 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         for idx in sorted(cand_indices[:num_to_predict]):
             tokens[idx] = rng.choice(self.vocab_words)
 
-        return tokens, True
+        return tokens, True, cand_indices[:num_to_predict]
 
     def corrupt_permute(self, tokens, rng):
         num_to_predict = max(1, int(round(len(tokens) * (self.corrupt_per_sentence / 2.))))
 
         if len(tokens) < 2:
-            print("Length of tokens < 2, that's weird")
-            return tokens, False
+            return tokens, False, []
+
+        indices = []
 
         for i in range(num_to_predict):
             id1, id2 = rng.sample(list(range(len(tokens))), 2)
             tokens[id1], tokens[id2] = tokens[id2], tokens[id1]
+            indices += [id1, id2]
 
-        return tokens, True
+        return tokens, True, indices
 
     def corrupt_insert(self, tokens, rng):
         cand_indices = [idx for idx in range(len(tokens))]
@@ -910,7 +914,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         for idx in sorted(cand_indices[:num_to_insert]):
             tokens = tokens[:idx] + [rng.choice(self.vocab_words)] + tokens[idx:]
 
-        return tokens, True
+        return tokens, True, cand_indices[:num_to_insert]
 
     def corrupt_delete(self, tokens, rng):
         cand_indices = [idx for idx in range(len(tokens))]
@@ -921,7 +925,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         for idx in sorted(cand_indices[:num_to_delete], reverse=True):
             del tokens[idx]
 
-        return tokens, True
+        return tokens, True, []
 
 class bert_rg_sentences_dataset(bert_dataset):
     """
