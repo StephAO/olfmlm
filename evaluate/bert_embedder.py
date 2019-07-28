@@ -111,6 +111,9 @@ class BertEmbedderModule(nn.Module):
             num_layers = self.model.config.num_hidden_layers
             self.scalar_mix = scalar_mix.ScalarMix(num_layers + 1, do_layer_norm=False)
 
+    def normalize(self, x):
+        return (x - torch.mean(x, 1, keepdim=True)) / torch.std(x, 1, keepdim=True)
+
     def forward(
         self, sent: Dict[str, torch.LongTensor], unused_task_name: str = "", is_pair_task=False
     ) -> torch.FloatTensor:
@@ -165,9 +168,9 @@ class BertEmbedderModule(nn.Module):
                 s1, s2 = _split_sentence(ids, self._cls_id, self._sep_id, self._pad_id)
                 token_types = torch.zeros_like(ids)
                 u, _ = self.model(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)
-                v = torch.zeros_like(u) if s2 is None else \
+                v = None if s2 is None else \
                     self.model(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-                h_enc = torch.cat([u, v, u - v, u * v], 2)
+                h_enc = self.normalize(u * v) if v is not None else u
 
             else:
                 token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
@@ -193,7 +196,7 @@ class BertEmbedderModule(nn.Module):
     def get_output_dim(self):
         if self.embeddings_mode == "cat":
             return 2 * self.model.config.hidden_size
-        elif self.split and self.embeddings_mode == "none":
-            return 4 * self.model.config.hidden_size
+        #elif self.split and self.embeddings_mode == "none":
+        #    return 4 * self.model.config.hidden_size
         else:
             return self.model.config.hidden_size
