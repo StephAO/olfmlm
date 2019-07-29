@@ -206,7 +206,7 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
 
     # with amp.scale_loss(loss, optimizer) as scaled_loss:
     #     scaled_loss.backward()
-    # loss.backward()
+    loss.backward()
 
     # Reduce across processes.
     lm_loss_reduced = lm_loss

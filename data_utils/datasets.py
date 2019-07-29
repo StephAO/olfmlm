@@ -866,6 +866,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
             tokens.extend(curr_strs[j])
 
         corrupted = False
+        ids = []
         if rng.random() < self.corrupt_p:
             x = rng.random()
             if x < 0.25:
