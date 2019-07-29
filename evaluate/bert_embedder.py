@@ -69,6 +69,8 @@ class BertEmbedderModule(nn.Module):
     def __init__(self, args, cache_dir=None):
         super(BertEmbedderModule, self).__init__()
 
+        self.two_models = args.two_models
+
         if args.bert_use_pretrain:
             self.model = BertModel.from_pretrained(
                 args.input_module, cache_dir=cache_dir
@@ -76,6 +78,8 @@ class BertEmbedderModule(nn.Module):
         else:
             self.config = BertConfig(args.bert_config_file)
             self.model = BertModel(self.config)
+            if args.two_models:
+                self.model_2 = BertModel(self.config)
         self.embeddings_mode = args.bert_embeddings_mode
 
         tokenizer = BertTokenizer.from_pretrained(
@@ -167,9 +171,19 @@ class BertEmbedderModule(nn.Module):
             if self.split:
                 s1, s2 = _split_sentence(ids, self._cls_id, self._sep_id, self._pad_id)
                 token_types = torch.zeros_like(ids)
-                u, _ = self.model(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)
+
+                u = self.model(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
                 v = None if s2 is None else \
                     self.model(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
+
+                if self.two_models:
+                    u2 = self.model_2(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
+                    v2 = None if s2 is None else \
+                        self.model_2(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
+
+                    u = torch.cat([u, u2], dim=1)
+                    v = None if v is None else torch.cat([v, v2], dim=1)
+
                 h_enc = self.normalize(u * v) if v is not None else u
 
             else:
