@@ -13,7 +13,7 @@ model_state = torch.load(state_path)['sd']
 new_model_state = {}
 
 for name, value in model_state.items():
-    model = "model_2" if not two_models and name.split('.')[0] == "receiver" else "model"
+    model = "model_2" if two_models and name.split('.')[0] == "receiver" else "model"
     name = "sent_encoder._text_field_embedder." + model + "." + '.'.join(name.split('.')[1:])
     name_parts = name.split('.')
     if name_parts[-1] == 'gamma':

@@ -164,7 +164,6 @@ class BertEmbedderModule(nn.Module):
             # probing. If you would like to use dropout, consider applying
             # later on in the SentenceEncoder (see models.py).
             #  h_lex = self.model.embeddings.dropout(embeddings)
-
         if self.embeddings_mode != "only":
             # encoded_layers is a list of layer activations, each of which is
             # <float32> [batch_size, seq_len, output_dim]
@@ -180,9 +179,8 @@ class BertEmbedderModule(nn.Module):
                     u2 = self.model_2(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
                     v2 = None if s2 is None else \
                         self.model_2(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-
-                    u = torch.cat([u, u2], dim=1)
-                    v = None if v is None else torch.cat([v, v2], dim=1)
+                    u = torch.cat([u, u2], dim=2)
+                    v = None if v is None else torch.cat([v, v2], dim=2)
 
                 h_enc = self.normalize(u * v) if v is not None else u
 
@@ -208,7 +206,7 @@ class BertEmbedderModule(nn.Module):
         return h
 
     def get_output_dim(self):
-        if self.embeddings_mode == "cat":
+        if self.embeddings_mode == "cat" or self.two_models:
             return 2 * self.model.config.hidden_size
         else:
             return self.model.config.hidden_size
