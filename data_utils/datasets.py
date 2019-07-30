@@ -802,7 +802,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(False, *args, **kwargs)
-        self.corrupt_per_sentence = 0.15
+        self.corrupt_per_sentence = 0.10
         self.corrupt_p = 0.5
 
     def __len__(self):
@@ -865,7 +865,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         for j in range(len(curr_strs)):
             tokens.extend(curr_strs[j])
 
-        corrupted = False
+        corrupted = 0
         ids = []
         if rng.random() < self.corrupt_p:
             x = rng.random()
@@ -889,13 +889,13 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         for idx in sorted(cand_indices[:num_to_predict]):
             tokens[idx] = rng.choice(self.vocab_words)
 
-        return tokens, True, cand_indices[:num_to_predict]
+        return tokens, 1, cand_indices[:num_to_predict]
 
     def corrupt_permute(self, tokens, rng):
         num_to_predict = max(1, int(round(len(tokens) * (self.corrupt_per_sentence / 2.))))
 
         if len(tokens) < 2:
-            return tokens, False, []
+            return tokens, 0, []
 
         indices = []
 
@@ -904,7 +904,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
             tokens[id1], tokens[id2] = tokens[id2], tokens[id1]
             indices += [id1, id2]
 
-        return tokens, True, indices
+        return tokens, 2, indices
 
     def corrupt_insert(self, tokens, rng):
         cand_indices = [idx for idx in range(len(tokens))]
@@ -915,7 +915,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         for idx in sorted(cand_indices[:num_to_insert]):
             tokens = tokens[:idx] + [rng.choice(self.vocab_words)] + tokens[idx:]
 
-        return tokens, True, cand_indices[:num_to_insert]
+        return tokens, 3, cand_indices[:num_to_insert]
 
     def corrupt_delete(self, tokens, rng):
         cand_indices = [idx for idx in range(len(tokens))]
@@ -926,7 +926,7 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         for idx in sorted(cand_indices[:num_to_delete], reverse=True):
             del tokens[idx]
 
-        return tokens, True, []
+        return tokens, 4, []
 
 class bert_rg_sentences_dataset(bert_dataset):
     """

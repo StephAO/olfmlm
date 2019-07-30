@@ -96,6 +96,11 @@ def setup_model_and_optimizer(args, tokenizer):
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
     criterion = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
 
+    if args.model_type == "corrupt":
+        weights = torch.FloatTensor([1., 4., 4., 4., 4.])
+        c2 = torch.nn.CrossEntropyLoss(weight=weights, reduce=False, ignore_index=-1)
+        criterion = (criterion, c2)
+
     if args.load is not None:
         epoch, i, total_iters = load_checkpoint(model, optimizer,
                                                 lr_scheduler, args)
@@ -149,6 +154,11 @@ def get_batch(data):
 def forward_step(data, model, criterion, args):
     """Forward step."""
 
+    if args.model_type == "corrupt":
+        criterion, criterion_sentence = criterion
+    else:
+        criterion_sentence = criterion
+
     # Get the batch.
     batch = get_batch(data)
 
@@ -164,8 +174,8 @@ def forward_step(data, model, criterion, args):
     else:
         mlm, sentence = output
         sentence = sentence if args.model_type == "referential_game" else sentence.view(-1, 2)
-        sentence_loss = criterion(sentence.contiguous().float(),
-                              sentence_label.view(-1).contiguous()).mean()
+        sentence_loss = criterion_sentence(sentence.contiguous().float(),
+                                  sentence_label.view(-1).contiguous()).mean()
 
     if args.model_type in ["split", "referential_game"]:
         mlm2, loss_mask2, lm_labels2 = mlm[1], loss_mask[1], lm_labels[1]

@@ -4,9 +4,9 @@ from torch.nn import CrossEntropyLoss
 from .modeling import *
 
 class BertNSPHead(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, num_classes=2):
         super(BertNSPHead, self).__init__()
-        self.seq_relationship = nn.Linear(config.hidden_size, 2)
+        self.seq_relationship = nn.Linear(config.hidden_size, num_classes)
 
     def forward(self, pooled_output):
         seq_relationship_score = self.seq_relationship(pooled_output)
@@ -62,7 +62,9 @@ class Corrupt(PreTrainedBertModel):
     def __init__(self, config):
         super(Corrupt, self).__init__(config)
         self.bert = BertModel(config)
-        self.cls = BertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
+        self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
+        self.nsp = BertNSPHead(config, num_classes=5)
+        # self.cls = BertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
