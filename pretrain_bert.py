@@ -97,7 +97,7 @@ def setup_model_and_optimizer(args, tokenizer):
     criterion = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
 
     if args.model_type == "corrupt":
-        weights = torch.FloatTensor([1., 4., 4., 4., 4.])
+        weights = torch.FloatTensor([1., 4., 4., 4., 4.]).cuda()
         c2 = torch.nn.CrossEntropyLoss(weight=weights, reduce=False, ignore_index=-1)
         criterion = (criterion, c2)
 
@@ -173,7 +173,7 @@ def forward_step(data, model, criterion, args):
         sentence_loss = torch.Tensor([0]).cuda()
     else:
         mlm, sentence = output
-        sentence = sentence if args.model_type == "referential_game" else sentence.view(-1, 2)
+        #sentence = sentence if args.model_type in ["referential_game", "corrupt"] else sentence.view(-1, 2)
         sentence_loss = criterion_sentence(sentence.contiguous().float(),
                                   sentence_label.view(-1).contiguous()).mean()
 

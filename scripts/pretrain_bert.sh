@@ -25,6 +25,6 @@ python3 -m sentence-encoders.pretrain_bert \
     --num-workers 2 \
     --epochs 1 \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
-    --save /scratch/gobi1/stephaneao/trained_berts/bert_no_nsp/ \
-    --model-type 'bertmlm' \
+    --save /scratch/gobi1/stephaneao/trained_berts/bert/ \
+    --model-type 'bert' \
     --track-results True

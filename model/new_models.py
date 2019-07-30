@@ -23,7 +23,7 @@ class Split(PreTrainedBertModel):
         super(Split, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.nsp = BertNSPHead(config)
+        self.nsp = BertOnlyNSPHead(config)
         self.apply(self.init_bert_weights)
         self.first_pooled_output = None
         self.config = config
@@ -70,17 +70,11 @@ class Corrupt(PreTrainedBertModel):
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
         sequence_output, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
                                                    output_all_encoded_layers=False, checkpoint_activations=checkpoint_activations)
-        prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
+        #prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
+        lm_scores = self.lm(sequence_output)
+        nsp_scores = self.nsp(pooled_output)
 
-
-        if masked_lm_labels is not None and next_sentence_label is not None:
-            loss_fct = CrossEntropyLoss(ignore_index=-1)
-            masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), masked_lm_labels.view(-1))
-            next_sentence_loss = loss_fct(seq_relationship_score.view(-1, 2), next_sentence_label.view(-1))
-            total_loss = masked_lm_loss + next_sentence_loss
-            return total_loss
-        else:
-            return prediction_scores, seq_relationship_score
+        return lm_scores, nsp_scores
 
 
 class ReferentialGame(PreTrainedBertModel):
