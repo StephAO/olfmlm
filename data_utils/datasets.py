@@ -869,13 +869,13 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         ids = []
         if rng.random() < self.corrupt_p:
             x = rng.random()
-            if x < 0.25:
+            if x < 0.2:
                 tokens, corrupted, ids = self.corrupt_permute(tokens, rng)
-            elif x < 0.5:
+            elif x < 0.4:
                 tokens, corrupted, ids = self.corrupt_replace(tokens, rng)
-            elif x < 0.75:
+            elif x < 0.6:
                 tokens, corrupted, ids = self.corrupt_insert(tokens, rng)
-            else:
+            elif x < 0.8:
                 tokens, corrupted, ids = self.corrupt_delete(tokens, rng)
 
         return tokens, corrupted, ids

@@ -96,10 +96,10 @@ def setup_model_and_optimizer(args, tokenizer):
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
     criterion = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
 
-    if args.model_type == "corrupt":
-        weights = torch.FloatTensor([1., 4., 4., 4., 4.]).cuda()
-        c2 = torch.nn.CrossEntropyLoss(weight=weights, reduce=False, ignore_index=-1)
-        criterion = (criterion, c2)
+    # if args.model_type == "corrupt":
+    #     weights = torch.FloatTensor([1., 4., 4., 4., 4.]).cuda()
+    #     c2 = torch.nn.CrossEntropyLoss(weight=weights, reduce=False, ignore_index=-1)
+    #     criterion = (criterion, c2)
 
     if args.load is not None:
         epoch, i, total_iters = load_checkpoint(model, optimizer,
@@ -154,10 +154,10 @@ def get_batch(data):
 def forward_step(data, model, criterion, args):
     """Forward step."""
 
-    if args.model_type == "corrupt":
-        criterion, criterion_sentence = criterion
-    else:
-        criterion_sentence = criterion
+    # if args.model_type == "corrupt":
+    #     criterion, criterion_sentence = criterion
+    # else:
+    criterion_sentence = criterion
 
     # Get the batch.
     batch = get_batch(data)
