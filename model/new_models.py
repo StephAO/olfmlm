@@ -84,7 +84,7 @@ class ReferentialGame(PreTrainedBertModel):
         - the next sentence classification head.
 
     """
-    def __init__(self, config, config_small):
+    def __init__(self, config):
         super(ReferentialGame, self).__init__(config)
         self.bert = BertModel(config)
         # self.receiver = BertModel(config_small)
@@ -122,7 +122,7 @@ class Combined(PreTrainedBertModel):
         - the next sentence classification head.
 
     """
-    def __init__(self, config, config_small):
+    def __init__(self, config):
         super(Combined, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)

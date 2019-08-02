@@ -70,9 +70,9 @@ class BertModel(torch.nn.Module):
         self.config = BertConfig(args.bert_config_file)
         model_args = [self.config]
         self.model_type = args.model_type
-        if self.model_type == "referential_game":
-            self.small_config = BertConfig(args.bert_small_config_file)
-            model_args.append(self.small_config)
+        # if self.model_type == "referential_game":
+        #     self.small_config = BertConfig(args.bert_small_config_file)
+        #     model_args.append(self.small_config)
         self.model = sentence_encoders[self.model_type](*model_args)
 
     def forward(self, input_tokens, token_type_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
@@ -95,7 +95,7 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
-        if self.model_type in ["split", "corrupted", "combined"]:
+        if self.model_type in ["split", "corrupt", "combined"]:
             param_groups += list(get_params_for_weight_decay_optimization(self.model.corrupted.seq_relationship))
             param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
             param_groups[1]['params'].append(self.model.lm.predictions.bias)
