@@ -144,8 +144,11 @@ class Combined(PreTrainedBertModel):
                                               output_all_encoded_layers=False,
                                               checkpoint_activations=checkpoint_activations)
 
+        print(torch.cat(input_ids, dim=0).shape)
+        print(input_ids[0].shape, input_ids[1].shape)
+
         send_emb, recv_emb = pooled_output[:len(input_ids[0])], pooled_output[len(input_ids[1]):]
         lm_scores = self.lm(seq_output)
         rg_scores = self.inner_product(send_emb, recv_emb)
-        corrupted_scores = (self.corrupted(send_emb), self.corrupted(recv_emb))
+        corrupted_scores = self.corrupted(pooled_output)
         return lm_scores, rg_scores, corrupted_scores

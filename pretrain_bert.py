@@ -126,8 +126,14 @@ def get_batch(data):
     shard reset mask of the same dimensions is also returned.
     '''
     tokens = torch.autograd.Variable(data['text'].long())
-    sentence_label = torch.autograd.Variable(data['sent_label'].long()) if 'sent_label' in data else \
-                     torch.arange(tokens.shape[0])
+    if 'sent_label' not in data:
+        sentence_label = torch.arange(tokens.shape[0] / 2)
+    elif isinstance(data['sent_label'], tuple):
+        sentence_label = torch.cat(data['sent_label'], dim=0)
+    else:
+        sentence_label = data['sent_label']
+    sentence_label = torch.autograd.Variable(sentence_label.long())
+
     loss_mask = torch.autograd.Variable(data['mask'].float())
     lm_labels = torch.autograd.Variable(data['mask_labels'].long())
     padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
@@ -172,7 +178,7 @@ def forward_step(data, model, criterion, args):
         sentence_loss = torch.Tensor([0]).cuda()
     elif args.model_type == "combined":
         mlm, sentence, corrupted = output
-        sentence_label, corrupted_label = sentence_label
+        corrupted_label = torch.arange(tokens.shape[0] / 2)
         sentence_loss = criterion_sentence(sentence.contiguous().float(),
                                            sentence_label.view(-1).contiguous()).mean()
         corrupted_loss = criterion_sentence(corrupted.contiguous().float(),
@@ -184,9 +190,9 @@ def forward_step(data, model, criterion, args):
         sentence_loss = criterion_sentence(sentence.contiguous().float(),
                                   sentence_label.view(-1).contiguous()).mean()
 
-    if args.model_type in ["split", "referential_game"]:
-        mlm2, loss_mask2, lm_labels2 = mlm[1], loss_mask[1], lm_labels[1]
-        mlm, loss_mask, lm_labels = mlm[0], loss_mask[0], lm_labels[0]
+    # if args.model_type in ["split", "referential_game"]:
+    #     mlm2, loss_mask2, lm_labels2 = mlm[1], loss_mask[1], lm_labels[1]
+    #     mlm, loss_mask, lm_labels = mlm[0], loss_mask[0], lm_labels[0]
 
     mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
                          lm_labels.contiguous().view(-1).contiguous())
@@ -195,11 +201,11 @@ def forward_step(data, model, criterion, args):
     loss_mask = loss_mask.view(-1)
     lm_loss = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
 
-    if args.model_type in ["split", "referential_game"]:
-        mlm_loss = criterion(mlm2.view(-1, args.data_size).contiguous().float(),
-                             lm_labels2.contiguous().view(-1).contiguous())
-        loss_mask = loss_mask2.contiguous().view(-1)
-        lm_loss += torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
+    # if args.model_type in ["split", "referential_game"]:
+    #     mlm_loss = criterion(mlm2.view(-1, args.data_size).contiguous().float(),
+    #                          lm_labels2.contiguous().view(-1).contiguous())
+    #     loss_mask = loss_mask2.contiguous().view(-1)
+    #     lm_loss += torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
 
     return lm_loss, sentence_loss
 

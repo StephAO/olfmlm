@@ -1061,12 +1061,11 @@ class bert_combined_sentences_dataset(bert_dataset):
             target_seq_length = rng.randint(2, target_seq_length)
             short_seq = True
         target_seq_length *= 2
-        # get sentence pair and label
-        corrupted = None
 
-        a, b = self.create_random_sentencepair(target_seq_length, rng)
+        # get sentence pair and label
+        (a, b), (c_a, c_b), (ids_a, ids_b) = self.create_random_sentencepair(target_seq_length, rng)
         while (len(a) < 1) or (len(b) < 1):
-            a, b = self.create_random_sentencepair(target_seq_length, rng)
+            (a, b), (c_a, c_b), (ids_a, ids_b) = self.create_random_sentencepair(target_seq_length, rng)
         # truncate sentences to max_seq_len
         a = self.truncate_seq(a, self.max_seq_len, rng)
         b = self.truncate_seq(b, self.max_seq_len, rng)
@@ -1075,11 +1074,15 @@ class bert_combined_sentences_dataset(bert_dataset):
         # A #
         tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob,
                                                                                 self.max_preds_per_seq,
-                                                                                self.vocab_words, rng)
+                                                                                self.vocab_words, rng,
+                                                                                do_not_mask_tokens=ids_a)
         # B #
         tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob,
-                                                                                self.max_preds_per_seq, self.vocab_words, rng)
-        sample = {'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
+                                                                                self.max_preds_per_seq,
+                                                                                self.vocab_words, rng,
+                                                                                do_not_mask_tokens=ids_b)
+        sample = {'sent_label': (c_a, c_b),
+                  'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
                   'pad_mask': np.array(pad_mask_a),
                   'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
                   'pad_mask2': np.array(pad_mask_b)}
