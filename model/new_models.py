@@ -125,7 +125,6 @@ class Combined(PreTrainedBertModel):
     def __init__(self, config, config_small):
         super(Combined, self).__init__(config)
         self.bert = BertModel(config)
-        # self.receiver = BertModel(config_small)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.corrupted = BertNSPHead(config, num_classes=5)
         self.apply(self.init_bert_weights)

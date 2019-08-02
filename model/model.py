@@ -21,14 +21,15 @@ from .modeling import BertConfig
 from .modeling import BertForPreTraining as Bert, BertForMaskedLM as BertMLM
 from .modeling import BertLayerNorm
 
-from .new_models import Split, Corrupt, ReferentialGame
+from .new_models import Split, Corrupt, ReferentialGame, Combined
 
 sentence_encoders = {
     "bert" : Bert,
     "split" : Split,
     "corrupt": Corrupt,
     "referential_game": ReferentialGame,
-    "bertmlm": BertMLM
+    "bertmlm": BertMLM,
+    "combined": Combined
 }
 
 def get_params_for_weight_decay_optimization(module):
@@ -94,14 +95,14 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
-        if self.model_type == "split" or self.model_type == "corrupt":
+        if self.model_type in ["split", "corrupted", "combined"]:
             param_groups += list(get_params_for_weight_decay_optimization(self.model.corrupted.seq_relationship))
             param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
             param_groups[1]['params'].append(self.model.lm.predictions.bias)
         elif self.model_type == "referential_game":
-            param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.encoder.layer))
-            param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.pooler))
-            param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.embeddings))
+            # param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.encoder.layer))
+            # param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.pooler))
+            # param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.embeddings))
             param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
             param_groups[1]['params'].append(self.model.lm.predictions.bias)
         else:

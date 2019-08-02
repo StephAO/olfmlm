@@ -605,7 +605,7 @@ class bert_dataset(data.Dataset):
 
         for idx in sorted(cand_indices[:num_to_predict]):
             while idx in do_not_mask_tokens:
-                idx += 1
+                idx = (idx + 1) % len(mask)
             mask[idx] = 1
             label = self.mask_token(idx, output_tokens, output_types, vocab_words, rng)
             mask_labels[idx] = label
