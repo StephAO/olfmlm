@@ -165,12 +165,19 @@ def forward_step(data, model, criterion, args):
     tokens, types, sentence_label, loss_mask, lm_labels, padding_mask = batch
     # Forward model.
     att_mask = (1 - padding_mask[0], 1 - padding_mask[1]) if isinstance(padding_mask, tuple) else 1 - padding_mask
-    output = model(tokens, types, att_mask,
-                          checkpoint_activations=args.checkpoint_activations)
+    output = model(tokens, types, att_mask, checkpoint_activations=args.checkpoint_activations)
 
     if args.model_type == "bertmlm":
         mlm = output
         sentence_loss = torch.Tensor([0]).cuda()
+    elif args.model_type == "combined":
+        mlm, sentence, corrupted = output
+        sentence_label, corrupted_label = sentence_label
+        sentence_loss = criterion_sentence(sentence.contiguous().float(),
+                                           sentence_label.view(-1).contiguous()).mean()
+        corrupted_loss = criterion_sentence(corrupted.contiguous().float(),
+                                            corrupted_label.view(-1).contiguous()).mean()
+        sentence_label += corrupted_loss
     else:
         mlm, sentence = output
         #sentence = sentence if args.model_type in ["referential_game", "corrupt"] else sentence.view(-1, 2)
@@ -183,12 +190,6 @@ def forward_step(data, model, criterion, args):
 
     mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
                          lm_labels.contiguous().view(-1).contiguous())
-
-    # if args.model_type == "corrupt":
-    #     # Don't learn masked language from corrupted sentences
-    #     lm_loss_mask = (torch.ones_like(sentence_label, dtype=torch.float32) - sentence_label.float()).unsqueeze(1)
-    #     lm_loss_mask = lm_loss_mask.repeat(1, args.seq_length).view(-1)
-    #     mlm_loss = lm_loss_mask * mlm_loss
 
     loss_mask = loss_mask.contiguous()
     loss_mask = loss_mask.view(-1)

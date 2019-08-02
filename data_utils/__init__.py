@@ -17,7 +17,9 @@ import os
 import math
 
 from .samplers import DistributedBatchSampler
-from .datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, bert_sentencepair_dataset, bert_split_sentences_dataset, bert_corrupt_sentences_dataset, bert_rg_sentences_dataset
+from .datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, bert_sentencepair_dataset, \
+                      bert_split_sentences_dataset, bert_corrupt_sentences_dataset, bert_rg_sentences_dataset, \
+                      bert_combined_sentences_dataset
 from .lazy_loader import exists_lazy, make_lazy, lazy_array_loader
 from .tokenization import Tokenization, CommandToken, Tokenizer, CharacterLevelTokenizer, BertWordPieceTokenizer, make_tokenizer
 from . import corpora
@@ -31,7 +33,8 @@ dataset_types = {
     'bertmlm': bert_sentencepair_dataset,
     'split': bert_split_sentences_dataset,
     'corrupt': bert_corrupt_sentences_dataset,
-    'referential_game': bert_rg_sentences_dataset
+    'referential_game': bert_rg_sentences_dataset,
+    'combined': bert_combined_sentences_dataset
 }
 
 def should_split(split):

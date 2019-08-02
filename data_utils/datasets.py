@@ -589,7 +589,7 @@ class bert_dataset(data.Dataset):
             cand_indices = [idx + 1 for idx in range(len_a)] + [idx + 2 + len_a for idx in range(len_b)]
             output_types, _ = self.pad_seq(list(token_types))
         else:
-            tokens = [self.tokenizer.get_command('ENC').Id] + tokens_a
+            tokens = [self.tokenizer.get_command('ENC').Id] + tokens_a + [self.tokenizer.get_command('sep').Id]
             cand_indices = [idx + 1 for idx in range(len_a)]
             output_types = None
 
@@ -604,8 +604,8 @@ class bert_dataset(data.Dataset):
         mask_labels = [-1] * len(output_tokens)
 
         for idx in sorted(cand_indices[:num_to_predict]):
-            if idx in do_not_mask_tokens:
-                continue
+            while idx in do_not_mask_tokens:
+                idx += 1
             mask[idx] = 1
             label = self.mask_token(idx, output_tokens, output_types, vocab_words, rng)
             mask_labels[idx] = label
@@ -803,7 +803,6 @@ class bert_corrupt_sentences_dataset(bert_dataset):
     def __init__(self, *args, **kwargs):
         super().__init__(False, *args, **kwargs)
         self.corrupt_per_sentence = 0.05
-        self.corrupt_p = 0.5
 
     def __len__(self):
         return self.dataset_size
@@ -867,20 +866,20 @@ class bert_corrupt_sentences_dataset(bert_dataset):
 
         corrupted = 0
         ids = []
-        if rng.random() < self.corrupt_p:
-            x = rng.random()
-            if x < 0.2:
-                tokens, corrupted, ids = self.corrupt_permute(tokens, rng)
-            elif x < 0.4:
-                tokens, corrupted, ids = self.corrupt_replace(tokens, rng)
-            elif x < 0.6:
-                tokens, corrupted, ids = self.corrupt_insert(tokens, rng)
-            elif x < 0.8:
-                tokens, corrupted, ids = self.corrupt_delete(tokens, rng)
+        x = rng.random()
+        if x < 0.2:
+            tokens, corrupted, ids = self.corrupt_permute(tokens, rng)
+        elif x < 0.4:
+            tokens, corrupted, ids = self.corrupt_replace(tokens, rng)
+        elif x < 0.6:
+            tokens, corrupted, ids = self.corrupt_insert(tokens, rng)
+        elif x < 0.8:
+            tokens, corrupted, ids = self.corrupt_delete(tokens, rng)
 
         return tokens, corrupted, ids
 
     def corrupt_replace(self, tokens, rng):
+        indices = []
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
 
@@ -888,25 +887,29 @@ class bert_corrupt_sentences_dataset(bert_dataset):
 
         for idx in sorted(cand_indices[:num_to_predict]):
             tokens[idx] = rng.choice(self.vocab_words)
+            indices += [idx - 1, idx, idx + 1]
 
-        return tokens, 1, cand_indices[:num_to_predict]
+        return tokens, 1, indices
 
     def corrupt_permute(self, tokens, rng):
-        num_to_predict = max(2, int(round(len(tokens) * (self.corrupt_per_sentence / 2.))))
-
         if len(tokens) < 2:
             return tokens, 0, []
 
         indices = []
+        cand_indices = [idx for idx in range(len(tokens))]
+        rng.shuffle(cand_indices)
+        num_to_predict = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
 
-        for i in range(num_to_predict):
-            id1, id2 = rng.sample(list(range(len(tokens))), 2)
-            tokens[id1], tokens[id2] = tokens[id2], tokens[id1]
-            indices += [id1, id2]
+        for idx in sorted(cand_indices[:num_to_predict]):
+            if idx + 1 >= len(tokens):
+                idx -= 1
+            tokens[idx], tokens[idx + 1] = tokens[idx + 1], tokens[idx]
+            indices += [idx - 1, idx, idx + 1, idx + 2]
 
         return tokens, 2, indices
 
     def corrupt_insert(self, tokens, rng):
+        indices = []
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
 
@@ -914,8 +917,9 @@ class bert_corrupt_sentences_dataset(bert_dataset):
 
         for idx in sorted(cand_indices[:num_to_insert]):
             tokens = tokens[:idx] + [rng.choice(self.vocab_words)] + tokens[idx:]
+            indices += [idx - 1, idx, idx + 1]
 
-        return tokens, 3, cand_indices[:num_to_insert]
+        return tokens, 3, indices
 
     def corrupt_delete(self, tokens, rng):
         cand_indices = [idx for idx in range(len(tokens))]
@@ -1029,3 +1033,176 @@ class bert_rg_sentences_dataset(bert_dataset):
                     token_types_b.extend(curr_str_types[j])
 
         return tokens_a, tokens_b
+
+### ADDED BY STEPHANE ###
+class bert_combined_sentences_dataset(bert_dataset):
+    """
+    Dataset containing sentencepairs for BERT training. Each index corresponds to a randomly generated sentence pair.
+    Arguments:
+        ds (Dataset or array-like): data corpus to use for training
+        max_seq_len (int): maximum sequence length to use for a sentence pair
+        mask_lm_prob (float): proportion of tokens to mask for masked LM
+        max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
+        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
+        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
+
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(False, *args, **kwargs)
+        self.corrupt_per_sentence = 0.05
+
+    def __getitem__(self, idx):
+        # get rng state corresponding to index (allows deterministic random pair)
+        rng = random.Random(idx)
+        # get seq length
+        target_seq_length = self.max_seq_len
+        short_seq = False
+        if rng.random() < self.short_seq_prob:
+            target_seq_length = rng.randint(2, target_seq_length)
+            short_seq = True
+        target_seq_length *= 2
+        # get sentence pair and label
+        corrupted = None
+
+        a, b = self.create_random_sentencepair(target_seq_length, rng)
+        while (len(a) < 1) or (len(b) < 1):
+            a, b = self.create_random_sentencepair(target_seq_length, rng)
+        # truncate sentences to max_seq_len
+        a = self.truncate_seq(a, self.max_seq_len, rng)
+        b = self.truncate_seq(b, self.max_seq_len, rng)
+
+        # Mask and pad sentence pair
+        # A #
+        tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob,
+                                                                                self.max_preds_per_seq,
+                                                                                self.vocab_words, rng)
+        # B #
+        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob,
+                                                                                self.max_preds_per_seq, self.vocab_words, rng)
+        sample = {'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
+                  'pad_mask': np.array(pad_mask_a),
+                  'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
+                  'pad_mask2': np.array(pad_mask_b)}
+
+        return sample
+
+    def create_random_sentencepair(self, target_seq_length, rng):
+        """
+        fetches a random sentencepair corresponding to rng state similar to
+        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
+        """
+        curr_strs = []
+        curr_str_types = []
+        curr_len = 0
+
+        while curr_len < 1:
+            curr_len = 0
+            doc_a = None
+            while doc_a is None:
+                doc_a_idx = rng.randint(0, self.ds_len - 1)
+                doc_a = self.sentence_split(self.get_doc(doc_a_idx))
+                if not doc_a:
+                    doc_a = None
+
+            random_start_a = rng.randint(0, len(doc_a) - 1)
+            while random_start_a < len(doc_a):
+                sentence = doc_a[random_start_a]
+                sentence, sentence_types = self.sentence_tokenize(sentence, 0, random_start_a == 0,
+                                                                  random_start_a == len(doc_a))
+                curr_strs.append(sentence)
+                curr_str_types.append(sentence_types)
+                curr_len += len(sentence)
+                if random_start_a == len(doc_a) - 1 or curr_len >= target_seq_length:
+                    break
+                random_start_a = (random_start_a + 1)
+
+        if curr_strs:
+            num_a = 1
+            if len(curr_strs) >= 2:
+                num_a = rng.randint(0, len(curr_strs))
+
+            tokens_a = []
+            token_types_a = []
+            for j in range(num_a):
+                tokens_a.extend(curr_strs[j])
+                if self.use_types:
+                    token_types_a.extend(curr_str_types[j])
+
+            tokens_b = []
+            token_types_b = []
+
+            for j in range(num_a, len(curr_strs)):
+                tokens_b.extend(curr_strs[j])
+                if self.use_types:
+                    token_types_b.extend(curr_str_types[j])
+
+        tokens = [tokens_a, tokens_b]
+        corrupted = [0, 0]
+        ids = [[], []]
+
+        for i in range(2):
+            x = rng.random()
+            if x < 0.2:
+                tokens[i], corrupted[i], ids[i] = self.corrupt_permute(tokens[i], rng)
+            elif x < 0.4:
+                tokens[i], corrupted[i], ids[i] = self.corrupt_replace(tokens[i], rng)
+            elif x < 0.6:
+                tokens[i], corrupted[i], ids[i] = self.corrupt_insert(tokens[i], rng)
+            elif x < 0.8:
+                tokens[i], corrupted[i], ids[i] = self.corrupt_delete(tokens[i], rng)
+
+        return tokens, corrupted, ids
+
+    def corrupt_replace(self, tokens, rng):
+        indices = []
+        cand_indices = [idx for idx in range(len(tokens))]
+        rng.shuffle(cand_indices)
+
+        num_to_predict = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
+
+        for idx in sorted(cand_indices[:num_to_predict]):
+            tokens[idx] = rng.choice(self.vocab_words)
+            indices += [idx - 1, idx, idx + 1]
+
+        return tokens, 1, indices
+
+    def corrupt_permute(self, tokens, rng):
+        if len(tokens) < 2:
+            return tokens, 0, []
+
+        indices = []
+        cand_indices = [idx for idx in range(len(tokens))]
+        rng.shuffle(cand_indices)
+        num_to_predict = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
+
+        for idx in sorted(cand_indices[:num_to_predict]):
+            if idx + 1 >= len(tokens):
+                idx -= 1
+            tokens[idx], tokens[idx + 1] = tokens[idx + 1], tokens[idx]
+            indices += [idx - 1, idx, idx + 1, idx + 2]
+
+        return tokens, 2, indices
+
+    def corrupt_insert(self, tokens, rng):
+        indices = []
+        cand_indices = [idx for idx in range(len(tokens))]
+        rng.shuffle(cand_indices)
+
+        num_to_insert = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
+
+        for idx in sorted(cand_indices[:num_to_insert]):
+            tokens = tokens[:idx] + [rng.choice(self.vocab_words)] + tokens[idx:]
+            indices += [idx - 1, idx, idx + 1]
+
+        return tokens, 3, indices
+
+    def corrupt_delete(self, tokens, rng):
+        cand_indices = [idx for idx in range(len(tokens))]
+        rng.shuffle(cand_indices)
+
+        num_to_delete = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
+
+        for idx in sorted(cand_indices[:num_to_delete], reverse=True):
+            del tokens[idx]
+
+        return tokens, 4, []

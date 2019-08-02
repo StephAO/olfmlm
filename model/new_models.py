@@ -63,7 +63,7 @@ class Corrupt(PreTrainedBertModel):
         super(Corrupt, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.nsp = BertNSPHead(config, num_classes=5)
+        self.corrupted = BertNSPHead(config, num_classes=5)
         # self.cls = BertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
@@ -72,9 +72,9 @@ class Corrupt(PreTrainedBertModel):
                                                    output_all_encoded_layers=False, checkpoint_activations=checkpoint_activations)
         #prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
         lm_scores = self.lm(sequence_output)
-        nsp_scores = self.nsp(pooled_output)
+        corrupted_scores = self.corrupted(pooled_output)
 
-        return lm_scores, nsp_scores
+        return lm_scores, corrupted_scores
 
 
 class ReferentialGame(PreTrainedBertModel):
@@ -86,9 +86,9 @@ class ReferentialGame(PreTrainedBertModel):
     """
     def __init__(self, config, config_small):
         super(ReferentialGame, self).__init__(config)
-        self.bert = BertModel(config_small)
-        self.receiver = BertModel(config_small)
-        self.lm = BertOnlyMLMHead(config_small, self.bert.embeddings.word_embeddings.weight)
+        self.bert = BertModel(config)
+        # self.receiver = BertModel(config_small)
+        self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
     def cosine_similarity(self, a, b):
@@ -100,34 +100,53 @@ class ReferentialGame(PreTrainedBertModel):
     def inner_product(self, a, b):
         return torch.mm(a, b.transpose(0, 1))
 
-    def mse(self, a, b):
-        '''
-        taken from: https://discuss.pytorch.org/t/efficient-distance-matrix-computation/9065/3
-        Input: x is a Nxd matrix
-               y is an optional Mxd matirx
-        Output: dist is a NxM matrix where dist[i,j] is the square norm between x[i,:] and y[j,:]
-                if y is not given then use 'y=x'.
-        i.e. dist[i,j] = ||x[i,:]-y[j,:]||^2
-        '''
-        a_norm = (a ** 2).sum(1).view(-1, 1)
-        b_t = torch.transpose(b, 0, 1)
-        b_norm = (b ** 2).sum(1).view(1, -1)
-
-        dist = a_norm + b_norm - 2.0 * torch.mm(a, b_t)
-        # Ensure diagonal is zero if x=y
-        # if y is None:
-        #     dist = dist - torch.diag(dist.diag)
-        return torch.clamp(dist, 0.0, np.inf)
-
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
-        seq_output_1, send_emb = self.bert(input_ids[0], None, attention_mask[0],
+        seq_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), None, torch.cat(attention_mask, dim=0),
                                               output_all_encoded_layers=False,
                                               checkpoint_activations=checkpoint_activations)
-        seq_output_2, rec_emb = self.receiver(input_ids[1], None, attention_mask[1],
-                                   output_all_encoded_layers=False,
-                                   checkpoint_activations=checkpoint_activations)
-        lm_scores = (self.lm(seq_output_1), self.lm(seq_output_2))
+        # seq_output_2, recv_emb = self.bert(input_ids[1], None, attention_mask[1],
+        #                                   output_all_encoded_layers=False,
+        #                                   checkpoint_activations=checkpoint_activations)
+        send_emb, recv_emb = pooled_output[:len(input_ids[0])], pooled_output[len(input_ids[1]):]
 
-        rg_scores = self.inner_product(send_emb, rec_emb)
+        lm_scores = self.lm(seq_output)
+
+        rg_scores = self.inner_product(send_emb, recv_emb)
 
         return lm_scores, rg_scores
+
+class Combined(PreTrainedBertModel):
+    """BERT model with pre-training heads.
+    This module comprises the BERT model followed by the two pre-training heads:
+        - the masked language modeling head, and
+        - the next sentence classification head.
+
+    """
+    def __init__(self, config, config_small):
+        super(Combined, self).__init__(config)
+        self.bert = BertModel(config)
+        # self.receiver = BertModel(config_small)
+        self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
+        self.corrupted = BertNSPHead(config, num_classes=5)
+        self.apply(self.init_bert_weights)
+
+    def cosine_similarity(self, a, b):
+        "taken from https://stackoverflow.com/questions/50411191/how-to-compute-the-cosine-similarity-in-pytorch-for-all-rows-in-a-matrix-with-re"
+        a_norm = a / a.norm(dim=1)[:, None]
+        b_norm = b / b.norm(dim=1)[:, None]
+        return torch.mm(a_norm, b_norm.transpose(0, 1))
+
+    def inner_product(self, a, b):
+        return torch.mm(a, b.transpose(0, 1))
+
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
+        seq_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), None, torch.cat(attention_mask, dim=0),
+                                              output_all_encoded_layers=False,
+                                              checkpoint_activations=checkpoint_activations)
+
+        send_emb, recv_emb = pooled_output[:len(input_ids[0])], pooled_output[len(input_ids[1]):]
+        lm_scores = self.lm(seq_output)
+        rg_scores = self.inner_product(send_emb, recv_emb)
+        corrupted_scores = (self.corrupted(send_emb), self.corrupted(recv_emb))
+        return lm_scores, rg_scores, corrupted_scores
