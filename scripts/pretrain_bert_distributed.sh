@@ -1,6 +1,6 @@
 #!/bin/bash
 
-WORLD_SIZE=8
+WORLD_SIZE=2
 # Change for multinode config
 MASTER_ADDR=localhost
 MASTER_PORT=6000
@@ -11,7 +11,7 @@ DISTRIBUTED_ARGS="--nproc_per_node $WORLD_SIZE --nnodes $NNODES --node_rank $NOD
 
 python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   pretrain_bert.py \
-    --batch-size 4 \
+    --batch-size 32 \
     --tokenizer-type BertWordPieceTokenizer \
     --cache-dir cache_dir \
     --tokenizer-model-type bert-large-uncased \

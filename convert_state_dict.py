@@ -9,7 +9,7 @@ two_models = (len(sys.argv) == 3 and int(sys.argv[2]) == 2)
 
 new_pathname = state_path.split('.')
 new_pathname = '.'.join(new_pathname[:-1]) + "_converted." + new_pathname[-1]
-model_state = torch.load(state_path)['sd']
+model_state = torch.load(state_path, map_location='cpu')['sd']
 new_model_state = {}
 
 for name, value in model_state.items():

@@ -88,7 +88,7 @@ class ReferentialGame(PreTrainedBertModel):
         super(ReferentialGame, self).__init__(config)
         self.bert = BertModel(config_small)
         self.receiver = BertModel(config_small)
-        self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
+        self.lm = BertOnlyMLMHead(config_small, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
     def cosine_similarity(self, a, b):
