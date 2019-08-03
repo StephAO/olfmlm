@@ -125,17 +125,17 @@ def get_batch(data):
     to the seq_len dimension in the LSTM. A Variable representing an appropriate
     shard reset mask of the same dimensions is also returned.
     '''
-    tokens = torch.autograd.Variable(data['text'].long())
+    tokens = torch.autograd.Variable(data['text'].long())     
     if 'sent_label' not in data:
-        sentence_label = torch.arange(tokens.shape[0] / 2)
-    elif isinstance(data['sent_label'], tuple):
-        sentence_label = torch.cat(data['sent_label'], dim=0)
+        sentence_label = torch.arange(tokens.shape[0])
+    elif isinstance(data['sent_label'], list):
+        sentence_label = torch.cat(data['sent_label'], dim=0) 
     else:
         sentence_label = data['sent_label']
     sentence_label = torch.autograd.Variable(sentence_label.long())
 
-    loss_mask = torch.autograd.Variable(data['mask'].float())
-    lm_labels = torch.autograd.Variable(data['mask_labels'].long())
+    loss_mask = torch.autograd.Variable(data['mask'].float()) if 'text2' not in data else data['text'].float()
+    lm_labels = torch.autograd.Variable(data['mask_labels'].long()) if 'text2' not in data else data['text'].long()
     padding_mask = torch.autograd.Variable(data['pad_mask'].byte())
     # Optional data
     types = None
@@ -145,16 +145,20 @@ def get_batch(data):
     # Move to cuda
     tokens = tokens.cuda()
     sentence_label = sentence_label.cuda()
-    loss_mask = loss_mask.cuda()
-    lm_labels = lm_labels.cuda()
+    if 'text2' not in data:
+        loss_mask = loss_mask.cuda()
+        lm_labels = lm_labels.cuda()
     padding_mask = padding_mask.cuda()
     
     if 'text2' in data:
         tokens = (tokens, torch.autograd.Variable(data['text2'].long()).cuda())
-        loss_mask = (loss_mask, torch.autograd.Variable(data['mask2'].float()).cuda())
-        lm_labels = (lm_labels, torch.autograd.Variable(data['mask_labels2'].long()).cuda())
+        loss_mask = (loss_mask, data['mask2'].float())
+        lm_labels = (lm_labels, data['mask_labels2'].long())
         padding_mask = (padding_mask, torch.autograd.Variable(data['pad_mask2'].byte()).cuda())
-
+        
+        lm_labels = torch.autograd.Variable(torch.cat(lm_labels, dim=0)).cuda()
+        loss_mask = torch.autograd.Variable(torch.cat(loss_mask, dim=0)).cuda()
+    torch.autograd.set_detect_anomaly(True)
     return (tokens, types, sentence_label, loss_mask, lm_labels, padding_mask)
 
 def forward_step(data, model, criterion, args):
@@ -178,12 +182,13 @@ def forward_step(data, model, criterion, args):
         sentence_loss = torch.Tensor([0]).cuda()
     elif args.model_type == "combined":
         mlm, sentence, corrupted = output
-        corrupted_label = torch.arange(tokens.shape[0] / 2)
+        corrupted_label = sentence_label
+        sentence_label = torch.arange(tokens[0].shape[0]).cuda()
         sentence_loss = criterion_sentence(sentence.contiguous().float(),
                                            sentence_label.view(-1).contiguous()).mean()
         corrupted_loss = criterion_sentence(corrupted.contiguous().float(),
                                             corrupted_label.view(-1).contiguous()).mean()
-        sentence_label += corrupted_loss
+        sentence_loss += corrupted_loss
     else:
         mlm, sentence = output
         #sentence = sentence if args.model_type in ["referential_game", "corrupt"] else sentence.view(-1, 2)
