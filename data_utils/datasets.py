@@ -446,7 +446,6 @@ class bert_dataset(data.Dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
@@ -462,7 +461,6 @@ class bert_dataset(data.Dataset):
         if max_preds_per_seq is None:
             max_preds_per_seq = math.ceil(max_seq_len*mask_lm_prob /10)*10
         self.max_preds_per_seq = max_preds_per_seq
-        self.short_seq_prob = short_seq_prob
         self.dataset_size = dataset_size
         if self.dataset_size is None:
             self.dataset_size = self.ds_len * (self.ds_len-1)
@@ -634,7 +632,7 @@ class bert_dataset(data.Dataset):
                 if not doc_a:
                     doc_a = None
 
-            random_start_a = rng.randint(0, len(doc_a) - 1)
+            random_start_a = rng.randint(0, len(doc_a) / 1)
             while random_start_a < len(doc_a):
                 sentence = doc_a[random_start_a]
                 sentence, sentence_types = self.sentence_tokenize(sentence, 0, random_start_a == 0,
@@ -708,7 +706,6 @@ class bert_sentencepair_dataset(bert_dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
@@ -720,10 +717,6 @@ class bert_sentencepair_dataset(bert_dataset):
         rng = random.Random(idx)
         # get seq length
         target_seq_length = self.max_seq_len
-        short_seq = False
-        if rng.random() < self.short_seq_prob:
-            target_seq_length = rng.randint(2, target_seq_length)
-            short_seq = True
         # get sentence pair and label
         is_random_next = None
         lena = 0
@@ -748,7 +741,6 @@ class bert_split_sentences_dataset(bert_dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
@@ -760,10 +752,6 @@ class bert_split_sentences_dataset(bert_dataset):
         rng = random.Random(idx)
         # get seq length
         target_seq_length = self.max_seq_len
-        short_seq = False
-        if rng.random() < self.short_seq_prob:
-            target_seq_length = rng.randint(2, target_seq_length)
-            short_seq = True
         target_seq_length *= 2
         # get sentence pair and label
         is_random_next = None
@@ -796,7 +784,6 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
@@ -812,11 +799,6 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         rng = random.Random(idx)
         # get seq length
         target_seq_length = self.max_seq_len
-        short_seq = False
-        if rng.random() < self.short_seq_prob:
-            target_seq_length = rng.randint(2, target_seq_length)
-            short_seq = True
-        target_seq_length *= 2
         # get sentence pair and label
         corrupted = None
 
@@ -856,8 +838,15 @@ class bert_corrupt_sentences_dataset(bert_dataset):
                 sentence, _ = self.sentence_tokenize(sentence, 0, random_start_a == 0, random_start_a == len(doc_a))
                 curr_strs.append(sentence)
                 curr_len += len(sentence)
-                if random_start_a == len(doc_a) - 1 or curr_len >= target_seq_length:
+                if curr_len >= target_seq_length:
                     break
+                if random_start_a == len(doc_a) - 1:
+                    curr_strs += [self.tokenizer.get_command('sep').Id]
+                    while doc_a is None:
+                        doc_a_idx = (doc_a_idx + 1) % self.ds_len
+                        doc_a = self.sentence_split(self.get_doc(doc_a_idx))
+                    random_start_a = rng.randint(0, len(doc_a) - 1)
+
                 random_start_a = (random_start_a+1)
 
         tokens = []
@@ -940,7 +929,6 @@ class bert_rg_sentences_dataset(bert_dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
@@ -954,12 +942,7 @@ class bert_rg_sentences_dataset(bert_dataset):
         # get rng state corresponding to index (allows deterministic random pair)
         rng = random.Random(idx)
         # get seq length
-        target_seq_length = self.max_seq_len
-        short_seq = False
-        if rng.random() < self.short_seq_prob:
-            target_seq_length = rng.randint(2, target_seq_length)
-            short_seq = True
-        target_seq_length *= 2
+        target_seq_length = self.max_seq_len * 2
         # get sentence pair and label
         a, b = self.create_random_sentencepair(target_seq_length, rng)
         while (len(a) < 1) or (len(b) < 1):
@@ -987,10 +970,7 @@ class bert_rg_sentences_dataset(bert_dataset):
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        is_random_next = None
-
         curr_strs = []
-        curr_str_types = []
         curr_len = 0
 
         while curr_len < 1:
@@ -1002,37 +982,31 @@ class bert_rg_sentences_dataset(bert_dataset):
                 if not doc_a:
                     doc_a = None
 
-            random_start_a = rng.randint(0, len(doc_a) - 1)
+            random_start_a = rng.randint(0, len(doc_a) / 2)
             while random_start_a < len(doc_a):
                 sentence = doc_a[random_start_a]
-                sentence, sentence_types = self.sentence_tokenize(sentence, 0, random_start_a == 0,
-                                                                  random_start_a == len(doc_a))
+                sentence, _ = self.sentence_tokenize(sentence, 0, random_start_a == 0, random_start_a == len(doc_a))
                 curr_strs.append(sentence)
-                curr_str_types.append(sentence_types)
                 curr_len += len(sentence)
-                if random_start_a == len(doc_a) - 1 or curr_len >= target_seq_length:
+                if curr_len >= target_seq_length:
                     break
-                random_start_a = (random_start_a + 1)
+                if random_start_a == len(doc_a) - 1:
+                    while doc_a is None:
+                        doc_a_idx = (doc_a_idx + 1) % self.ds_len
+                        doc_a = self.sentence_split(self.get_doc(doc_a_idx))
+                    random_start_a = rng.randint(0, len(doc_a) / 2)
 
-        if curr_strs:
-            num_a = 1
-            if len(curr_strs) >= 2:
-                num_a = rng.randint(0, len(curr_strs))
+                random_start_a = (random_start_a+1)
 
-            tokens_a = []
-            token_types_a = []
-            for j in range(num_a):
-                tokens_a.extend(curr_strs[j])
-                if self.use_types:
-                    token_types_a.extend(curr_str_types[j])
+        i = 0
+        tokens_a = []
+        while len(tokens_a) < target_seq_length / 2:
+            tokens_a.extend(curr_strs[i])
+            i += 0
 
-            tokens_b = []
-            token_types_b = []
-
-            for j in range(num_a, len(curr_strs)):
-                tokens_b.extend(curr_strs[j])
-                if self.use_types:
-                    token_types_b.extend(curr_str_types[j])
+        tokens_b = []
+        while len(tokens_a) < target_seq_length / 2 and i < len(curr_strs):
+            tokens_b.extend(curr_strs[i])
 
         return tokens_a, tokens_b
 
@@ -1045,7 +1019,6 @@ class bert_combined_sentences_dataset(bert_dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        short_seq_prob (float): Proportion of sentence pairs purposefully shorter than max_seq_len
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
@@ -1057,13 +1030,7 @@ class bert_combined_sentences_dataset(bert_dataset):
         # get rng state corresponding to index (allows deterministic random pair)
         rng = random.Random(idx)
         # get seq length
-        target_seq_length = self.max_seq_len
-        short_seq = False
-        if rng.random() < self.short_seq_prob:
-            target_seq_length = rng.randint(2, target_seq_length)
-            short_seq = True
-        target_seq_length *= 2
-
+        target_seq_length = self.max_seq_len * 2
         # get sentence pair and label
         (a, b), (c_a, c_b), (ids_a, ids_b) = self.create_random_sentencepair(target_seq_length, rng)
         while (len(a) < 1) or (len(b) < 1):
@@ -1097,7 +1064,6 @@ class bert_combined_sentences_dataset(bert_dataset):
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
         curr_strs = []
-        curr_str_types = []
         curr_len = 0
 
         while curr_len < 1:
@@ -1109,37 +1075,31 @@ class bert_combined_sentences_dataset(bert_dataset):
                 if not doc_a:
                     doc_a = None
 
-            random_start_a = rng.randint(0, len(doc_a) - 1)
+            random_start_a = rng.randint(0, len(doc_a) / 2)
             while random_start_a < len(doc_a):
                 sentence = doc_a[random_start_a]
-                sentence, sentence_types = self.sentence_tokenize(sentence, 0, random_start_a == 0,
-                                                                  random_start_a == len(doc_a))
+                sentence, _ = self.sentence_tokenize(sentence, 0, random_start_a == 0, random_start_a == len(doc_a))
                 curr_strs.append(sentence)
-                curr_str_types.append(sentence_types)
                 curr_len += len(sentence)
-                if random_start_a == len(doc_a) - 1 or curr_len >= target_seq_length:
+                if curr_len >= target_seq_length:
                     break
+                if random_start_a == len(doc_a) - 1:
+                    while doc_a is None:
+                        doc_a_idx = (doc_a_idx + 1) % self.ds_len
+                        doc_a = self.sentence_split(self.get_doc(doc_a_idx))
+                    random_start_a = rng.randint(0, len(doc_a) / 2)
+
                 random_start_a = (random_start_a + 1)
 
-        if curr_strs:
-            num_a = 1
-            if len(curr_strs) >= 2:
-                num_a = rng.randint(0, len(curr_strs))
+        i = 0
+        tokens_a = []
+        while len(tokens_a) < target_seq_length / 2:
+            tokens_a.extend(curr_strs[i])
+            i += 0
 
-            tokens_a = []
-            token_types_a = []
-            for j in range(num_a):
-                tokens_a.extend(curr_strs[j])
-                if self.use_types:
-                    token_types_a.extend(curr_str_types[j])
-
-            tokens_b = []
-            token_types_b = []
-
-            for j in range(num_a, len(curr_strs)):
-                tokens_b.extend(curr_strs[j])
-                if self.use_types:
-                    token_types_b.extend(curr_str_types[j])
+        tokens_b = []
+        while len(tokens_a) < target_seq_length / 2 and i < len(curr_strs):
+            tokens_b.extend(curr_strs[i])
 
         tokens = [tokens_a, tokens_b]
         corrupted = [0, 0]
