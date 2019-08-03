@@ -973,7 +973,9 @@ class bert_rg_sentences_dataset(bert_dataset):
                                                                                 self.max_preds_per_seq,
                                                                                 self.vocab_words, rng)
         # B #
-        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
+        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob,
+                                                                                self.max_preds_per_seq,
+                                                                                self.vocab_words, rng)
         sample = {'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
                   'pad_mask': np.array(pad_mask_a),
                   'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
