@@ -104,14 +104,10 @@ class ReferentialGame(PreTrainedBertModel):
         seq_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), None, torch.cat(attention_mask, dim=0),
                                               output_all_encoded_layers=False,
                                               checkpoint_activations=checkpoint_activations)
-        # seq_output_2, recv_emb = self.bert(input_ids[1], None, attention_mask[1],
-        #                                   output_all_encoded_layers=False,
-        #                                   checkpoint_activations=checkpoint_activations)
-        send_emb, recv_emb = pooled_output[:len(input_ids[0])], pooled_output[len(input_ids[1]):]
-
+        half = len(input_ids[0])
+        send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
         lm_scores = self.lm(seq_output)
-
-        rg_scores = self.inner_product(send_emb, recv_emb)
+        rg_scores = self.cosine_similarity(send_emb, recv_emb)
 
         return lm_scores, rg_scores
 
@@ -143,9 +139,10 @@ class Combined(PreTrainedBertModel):
         seq_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), None, torch.cat(attention_mask, dim=0),
                                               output_all_encoded_layers=False,
                                               checkpoint_activations=checkpoint_activations)
-
-        send_emb, recv_emb = pooled_output[:len(input_ids[0])], pooled_output[len(input_ids[1]):]
+        
+        half = len(input_ids[0])
+        send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
         lm_scores = self.lm(seq_output)
-        rg_scores = self.inner_product(send_emb, recv_emb)
+        rg_scores = self.cosine_similarity(send_emb, recv_emb)
         corrupted_scores = self.corrupted(pooled_output)
         return lm_scores, rg_scores, corrupted_scores
