@@ -584,50 +584,62 @@ class bert_dataset(data.Dataset):
         return seq, pad_mask
 
     def get_sentence(self, target_seq_length, rng, sentence_num=0, split=False):
+
         tokens = []
         token_types = []
         split_points = []
 
-        doc = None
-        while doc is None:
-            doc_idx = rng.randint(0, self.ds_len - 1)
-            doc = self.sentence_split(self.get_doc(doc_idx))
-            if not doc:
-                doc = None
+        while not tokens:
 
-        end_idx = rng.randint(0, len(doc) - 1)
-        start_idx = end_idx - 1
-        while len(tokens) < target_seq_length:
+            doc = None
+            while doc is None:
+                doc_idx = rng.randint(0, self.ds_len - 1)
+                doc = self.sentence_split(self.get_doc(doc_idx))
+                if not doc:
+                    doc = None
+
+            end_idx = rng.randint(0, len(doc) - 1)
+            start_idx = end_idx - 1
+            while len(tokens) < target_seq_length:
+                if split:
+                    split_points += [len(tokens)]
+                if end_idx < len(doc):
+                    sentence = doc[end_idx]
+                    sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, end_idx == 0,
+                                                                      end_idx == len(doc))
+                    tokens = tokens + sentence
+                    token_types = token_types + sentence_types
+                    end_idx += 1
+                elif start_idx >= 0:
+                    sentence = doc[start_idx]
+                    sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, start_idx == 0,
+                                                                      start_idx == len(doc))
+                    tokens = sentence + tokens
+                    token_types = sentence_types + token_types
+                    start_idx -= 1
+                else:
+                    print("Full document is too small, returning a small sequence")
+                    print("Length {}, number of sentences {}, start idx {}, end idx {}" .format(len(tokens), len(doc),
+                                                                                                start_idx, end_idx))
+                    break
+
             if split:
-                split_points += [len(tokens)]
-            if end_idx < len(doc):
-                sentence = doc[end_idx]
-                sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, end_idx == 0,
-                                                                  end_idx == len(doc))
-                tokens = tokens + sentence
-                token_types = token_types + sentence_types
-                end_idx += 1
-            elif start_idx >= 0:
-                sentence = doc[start_idx]
-                sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, start_idx == 0,
-                                                                  start_idx == len(doc))
-                tokens = sentence + tokens
-                token_types = sentence_types + token_types
-                start_idx -= 1
-            else:
-                print("Full document is too small, returning a small sequence")
-                print("Length {}, number of sentences {}, start idx {}, end idx {}" .format(len(tokens), len(doc),
-                                                                                            start_idx, end_idx))
-                break
+                if len(split_points) == 0:
+                    tokens = []
+                    token_types = []
+                    split_points = []
+                    continue
+                target_split = int(target_seq_length / 2)
+                spi = bisect_right(split_points, target_seq_length / 2)
+                if spi == len(split_points):
+                    split_idx = split_points[spi]
+                elif split_points[spi] - target_split < split_points[spi + 1] - target_split:
+                    split_idx = split_points[spi]
+                else:
+                    split_idx =  split_points[spi + 1]
+                tokens = (tokens[:split_idx], tokens[:split_idx])
+                token_types = (token_types[:split_idx], token_types[:split_idx])
 
-        if split:
-            target_split = int(target_seq_length / 2)
-            split_point = bisect_right(split_points, target_seq_length / 2)
-            split_idx = split_points[split_point] if \
-                        split_points[split_point] - target_split < split_points[split_point + 1] - target_split \
-                        else split_points[split_point + 1]
-            tokens = (tokens[:split_idx], tokens[:split_point])
-            token_types = (token_types[:split_idx], token_types[:split_point])
         return (tokens, token_types) if self.use_types else tokens
 
     def create_masked_lm_predictions(self, a, b, mask_lm_prob, max_preds_per_seq, vocab_words, rng, do_not_mask_tokens=[]):
