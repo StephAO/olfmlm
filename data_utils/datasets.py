@@ -631,14 +631,15 @@ class bert_dataset(data.Dataset):
                     continue
                 target_split = int(target_seq_length / 2)
                 spi = bisect_right(split_points, target_seq_length / 2)
+                print(spi)
                 if spi == len(split_points):
-                    split_idx = split_points[spi]
-                elif split_points[spi] - target_split < split_points[spi + 1] - target_split:
-                    split_idx = split_points[spi]
+                    split_idx = split_points[spi - 1]
+                elif abs(split_points[spi - 1] - target_split) < abs(split_points[spi] - target_split):
+                    split_idx = split_points[spi - 1]
                 else:
-                    split_idx =  split_points[spi + 1]
-                tokens = (tokens[:split_idx], tokens[:split_idx])
-                token_types = (token_types[:split_idx], token_types[:split_idx])
+                    split_idx =  split_points[spi]
+                tokens = (tokens[:split_idx], tokens[split_idx:])
+                token_types = (token_types[:split_idx], token_types[split_idx:])
 
         return (tokens, token_types) if self.use_types else tokens
 
