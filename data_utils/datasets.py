@@ -504,6 +504,7 @@ class bert_dataset(data.Dataset):
         tokens_a, token_types_a = a
         tokens_b, token_types_b = b
         max_num_tokens = max_seq_len - 3
+        pop_from = None
         while True:
             len_a = len(tokens_a)
             len_b = len(tokens_b)
@@ -513,13 +514,15 @@ class bert_dataset(data.Dataset):
             if len(tokens_a) > len(tokens_b):
                 trunc_tokens = tokens_a
                 trunc_types = token_types_a
+                pop_from = "front"
             else:
                 trunc_tokens = tokens_b
                 trunc_types = token_types_b
+                pop_from = "back"
 
             assert len(trunc_tokens) >= 1
 
-            if rng.random() < 0.5:
+            if pop_from == "front" or (pop_from is None and rng.random() < 0.5):
                 trunc_tokens.pop(0)
                 trunc_types.pop(0)
             else:
@@ -527,7 +530,7 @@ class bert_dataset(data.Dataset):
                 trunc_types.pop()
         return (tokens_a, token_types_a), (tokens_b, token_types_b)
 
-    def truncate_seq(self, a, max_seq_len, rng):
+    def truncate_seq(self, a, max_seq_len, rng, pop_from=None):
         """
         Truncate sequence pair according to original BERT implementation:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
@@ -542,7 +545,7 @@ class bert_dataset(data.Dataset):
             if len_a <= max_num_tokens:
                 break
             assert len(tokens_a) >= 1
-            if rng.random() < 0.5:
+            if pop_from == "front" or (pop_from is None and rng.random() < 0.5):
                 tokens_a.pop(0)
                 if self.use_types:
                     token_types_a.pop(0)
@@ -573,17 +576,17 @@ class bert_dataset(data.Dataset):
 
     def pad_seq(self, seq):
         """helper function to pad sequence pair"""
+        if len(seq) != self.max_seq_len:
+            print("----->", len(seq))
         num_pad = max(0, self.max_seq_len - len(seq))
         pad_mask = [0] * len(seq) + [1] * num_pad
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
-    def get_sentence(self, target_seq_length, rng, sentence_num=0, split=-1):
+    def get_sentence(self, target_seq_length, rng, sentence_num=0, split=False):
         tokens = []
         token_types = []
-        tokens_a = []
-        tokens_types_a = []
-        has_split = False
+        split_points = []
 
         doc = None
         while doc is None:
@@ -594,15 +597,10 @@ class bert_dataset(data.Dataset):
 
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1
-        while len(tokens) + len(tokens_a) >= target_seq_length:
-            if not has_split and split > 0 and len(tokens) >= split:
-                tokens_a = tokens
-                tokens_types_a = token_types
-                tokens = []
-                token_types = []
-                sentence_num += 1
-                has_split = True
-            if end_idx < len(doc) - 1:
+        while len(tokens) < target_seq_length:
+            if split:
+                split_points += [len(tokens)]
+            if end_idx < len(doc):
                 sentence = doc[end_idx]
                 sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, end_idx == 0,
                                                                   end_idx == len(doc))
@@ -622,9 +620,14 @@ class bert_dataset(data.Dataset):
                                                                                             start_idx, end_idx))
                 break
 
-        if has_split:
-            tokens = (tokens_a, tokens)
-            token_types = (tokens_types_a, token_types)
+        if split:
+            target_split = int(target_seq_length / 2)
+            split_point = bisect_right(split_points, target_seq_length / 2)
+            split_idx = split_points[split_point] if \
+                        split_points[split_point] - target_split < split_points[split_point + 1] - target_split \
+                        else split_points[split_point + 1]
+            tokens = (tokens[:split_idx], tokens[:split_point])
+            token_types = (token_types[:split_idx], token_types[:split_point])
         return (tokens, token_types) if self.use_types else tokens
 
     def create_masked_lm_predictions(self, a, b, mask_lm_prob, max_preds_per_seq, vocab_words, rng, do_not_mask_tokens=[]):
@@ -755,17 +758,14 @@ class bert_sentencepair_dataset(bert_dataset):
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
         is_random_next = None
-        a_length = rng.randint(int(target_seq_length * 0.25), int(target_seq_length * 0.65))
+        a_length = rng.randint(int(target_seq_length * 0.4), int(target_seq_length * 0.6))
         if rng.random() < 0.5:
             is_random_next = True
             tokens_a, token_types_a = self.get_sentence(a_length, rng, sentence_num=0)
-            if len(tokens_a) > 100:
-                print("DAMN that's a big A:", len(tokens_a))
-
             tokens_b, token_types_b = self.get_sentence(target_seq_length - len(tokens_a), rng, sentence_num=1)
         else:
             is_random_next = False
-            tokens, token_types = self.get_sentence(target_seq_length, rng, sentence_num=0, split=a_length)
+            tokens, token_types = self.get_sentence(target_seq_length, rng, sentence_num=0, split=True)
             tokens_a, tokens_b = tokens
             token_types_a, token_types_b = token_types
 
@@ -801,8 +801,8 @@ class bert_split_sentences_dataset(bert_dataset):
         while (is_random_next is None) or (len(a) < 1) or (len(b) < 1):
             a, b, is_random_next = self.create_random_sentencepair(target_seq_length, rng)
         # truncate sentences to max_seq_len
-        a = self.truncate_seq(a, self.max_seq_len, rng)
-        b = self.truncate_seq(b, self.max_seq_len, rng)
+        a = self.truncate_seq(a, self.max_seq_len, rng, pop_from="front")
+        b = self.truncate_seq(b, self.max_seq_len, rng, pop_from="back")
         # Mask and pad sentence pair
         sample = {}
         sample['sent_label'] = int(is_random_next)
@@ -828,7 +828,7 @@ class bert_split_sentences_dataset(bert_dataset):
             tokens_b = self.get_sentence(target_seq_length, rng, sentence_num=1)
         else:
             is_random_next = False
-            tokens = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
+            tokens = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=True)
             tokens_a, tokens_b = tokens
 
         return tokens_a, tokens_b, is_random_next
@@ -924,8 +924,8 @@ class bert_rg_sentences_dataset(bert_dataset):
         while (len(a) < 1) or (len(b) < 1):
             a, b = self.create_random_sentencepair(target_seq_length, rng)
         # truncate sentences to max_seq_len
-        a = self.truncate_seq(a, self.max_seq_len, rng)
-        b = self.truncate_seq(b, self.max_seq_len, rng)
+        a = self.truncate_seq(a, self.max_seq_len, rng, pop_from="front")
+        b = self.truncate_seq(b, self.max_seq_len, rng, pop_from="back")
         # Mask and pad sentence pair
         # A #
         tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob,
@@ -946,7 +946,7 @@ class bert_rg_sentences_dataset(bert_dataset):
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
+        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=True)
         return tokens_a, tokens_b
 
 ### ADDED BY STEPHANE ###
@@ -975,8 +975,8 @@ class bert_combined_sentences_dataset(bert_dataset):
         while (len(a) < 1) or (len(b) < 1):
             (a, b), (c_a, c_b), (ids_a, ids_b) = self.create_random_sentencepair(target_seq_length, rng)
         # truncate sentences to max_seq_len
-        a = self.truncate_seq(a, self.max_seq_len, rng)
-        b = self.truncate_seq(b, self.max_seq_len, rng)
+        a = self.truncate_seq(a, self.max_seq_len, rng, pop_from="front")
+        b = self.truncate_seq(b, self.max_seq_len, rng, pop_from="back")
 
         # Mask and pad sentence pair
         # A #
@@ -1002,7 +1002,7 @@ class bert_combined_sentences_dataset(bert_dataset):
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
+        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=True)
 
         tokens = [tokens_a, tokens_b]
         corrupted = [0, 0]
