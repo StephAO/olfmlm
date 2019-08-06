@@ -576,8 +576,8 @@ class bert_dataset(data.Dataset):
 
     def pad_seq(self, seq):
         """helper function to pad sequence pair"""
-        if len(seq) != self.max_seq_len:
-            print("----->", len(seq))
+        #if len(seq) != self.max_seq_len:
+        #    print("----->", len(seq))
         num_pad = max(0, self.max_seq_len - len(seq))
         pad_mask = [0] * len(seq) + [1] * num_pad
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
@@ -590,7 +590,6 @@ class bert_dataset(data.Dataset):
         split_points = []
 
         while not tokens:
-
             doc = None
             while doc is None:
                 doc_idx = rng.randint(0, self.ds_len - 1)
@@ -601,26 +600,28 @@ class bert_dataset(data.Dataset):
             end_idx = rng.randint(0, len(doc) - 1)
             start_idx = end_idx - 1
             while len(tokens) < target_seq_length:
-                if split:
+                if split and len(tokens) > 0:
                     split_points += [len(tokens)]
                 if end_idx < len(doc):
                     sentence = doc[end_idx]
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, end_idx == 0,
                                                                       end_idx == len(doc))
                     tokens = tokens + sentence
-                    token_types = token_types + sentence_types
+                    if self.use_types:
+                         token_types = token_types + sentence_types
                     end_idx += 1
                 elif start_idx >= 0:
                     sentence = doc[start_idx]
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, start_idx == 0,
                                                                       start_idx == len(doc))
                     tokens = sentence + tokens
-                    token_types = sentence_types + token_types
+                    if self.use_types:
+                        token_types = sentence_types + token_types
                     start_idx -= 1
                 else:
-                    print("Full document is too small, returning a small sequence")
-                    print("Length {}, number of sentences {}, start idx {}, end idx {}" .format(len(tokens), len(doc),
-                                                                                                start_idx, end_idx))
+                    #print("Full document is too small, returning a small sequence")
+                    #print("Length {}, number of sentences {}, start idx {}, end idx {}" .format(len(tokens), len(doc),
+                    #                                                                            start_idx, end_idx))
                     break
 
             if split:
@@ -631,15 +632,26 @@ class bert_dataset(data.Dataset):
                     continue
                 target_split = int(target_seq_length / 2)
                 spi = bisect_right(split_points, target_seq_length / 2)
-                print(spi)
-                if spi == len(split_points):
-                    split_idx = split_points[spi - 1]
+                if len(split_points) == 1:
+                    split_idx = split_points[0]
+                elif spi == len(split_points):
+                    split_idx = split_points[spi - 2]
                 elif abs(split_points[spi - 1] - target_split) < abs(split_points[spi] - target_split):
                     split_idx = split_points[spi - 1]
                 else:
-                    split_idx =  split_points[spi]
+                    split_idx =  split_points[min(spi, len(split_points) - 2)]
                 tokens = (tokens[:split_idx], tokens[split_idx:])
-                token_types = (token_types[:split_idx], token_types[split_idx:])
+
+                str_type_a = 'str' + str(0)
+                str_type_b = 'str' + str(1)
+                token_types_a = [self.tokenizer.get_type(str_type_a).Id]*len(tokens[0])
+                token_types_b = [self.tokenizer.get_type(str_type_b).Id]*len(tokens[1])
+                token_types = (token_types_a, token_types_b)
+                if len(tokens[0]) == 0 or len(tokens[1]) == 0:
+                    tokens = []
+                    token_types = []
+                    split_points = []
+                    continue
 
         return (tokens, token_types) if self.use_types else tokens
 
@@ -775,7 +787,7 @@ class bert_sentencepair_dataset(bert_dataset):
         if rng.random() < 0.5:
             is_random_next = True
             tokens_a, token_types_a = self.get_sentence(a_length, rng, sentence_num=0)
-            tokens_b, token_types_b = self.get_sentence(target_seq_length - len(tokens_a), rng, sentence_num=1)
+            tokens_b, token_types_b = self.get_sentence(target_seq_length - a_length, rng, sentence_num=1)
         else:
             is_random_next = False
             tokens, token_types = self.get_sentence(target_seq_length, rng, sentence_num=0, split=True)
@@ -783,8 +795,8 @@ class bert_sentencepair_dataset(bert_dataset):
             token_types_a, token_types_b = token_types
 
 
-        output_a = (tokens_a, token_types_a) if self.use_types else tokens_a
-        output_b = (tokens_b, token_types_b) if self.use_types else tokens_b
+        output_a = (tokens_a, token_types_a)
+        output_b = (tokens_b, token_types_b)
 
         return output_a, output_b, is_random_next
 

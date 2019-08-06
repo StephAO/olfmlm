@@ -395,7 +395,6 @@ def main():
     """Main training program."""
 
     print('Pretrain BERT model')
-
     # Disable CuDNN.
     torch.backends.cudnn.enabled = False
 

@@ -23,7 +23,7 @@ class Split(PreTrainedBertModel):
         super(Split, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.nsp = BertOnlyNSPHead(config)
+        self.corrupted = BertOnlyNSPHead(config)
         self.apply(self.init_bert_weights)
         self.first_pooled_output = None
         self.config = config
@@ -40,14 +40,14 @@ class Split(PreTrainedBertModel):
             sequence_output.append(s_o)
             pooled_output.append(p_o)
 
-        lm_scores = (self.lm(sequence_output[0]), self.lm(sequence_output[1]))
+        lm_scores = torch.cat((self.lm(sequence_output[0]), self.lm(sequence_output[1])), dim=0)
 
         # TODO try difference, dot product, combination
         # diff = pooled_output - self.first_pooled_output
         # dot_product = torch.bmm(self.first_pooled_output.view(-1, 1, self.config.hidden_size), pooled_output.view(-1, self.config.hidden_size, 1)).view(-1, 1)
         product = pooled_output[0] * pooled_output[1]
         nsp_classifier_features = self.normalize(product)  #torch.cat((self.first_pooled_output, pooled_output), 1)
-        nsp_scores = self.nsp(nsp_classifier_features)
+        nsp_scores = self.corrupted(nsp_classifier_features)
 
         return lm_scores, nsp_scores
 
