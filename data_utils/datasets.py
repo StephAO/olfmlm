@@ -478,8 +478,10 @@ class bert_dataset(data.Dataset):
             token_types = [self.tokenizer.get_type(str_type).Id]*len(tokens)
         return tokens, token_types
 
-    def sentence_split(self, document):
+    def sentence_split(self, document, min_length):
         """split document into sentences"""
+        if len(document.split(" ")) < min_length:
+            return None
         lines = document.split('\n')
         if self.presplit_sentences:
             return [line for line in lines if line]
@@ -593,7 +595,7 @@ class bert_dataset(data.Dataset):
             doc = None
             while doc is None:
                 doc_idx = rng.randint(0, self.ds_len - 1)
-                doc = self.sentence_split(self.get_doc(doc_idx))
+                doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
                 if not doc:
                     doc = None
 
@@ -737,11 +739,14 @@ class bert_dataset(data.Dataset):
     def corrupt_delete(self, tokens, rng, num_to_corrupt):
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
+        indices = []
 
-        for idx in sorted(cand_indices[:num_to_corrupt], reverse=True):
+        for i, idx in enumerate(sorted(cand_indices[:num_to_corrupt], reverse=True)):
             del tokens[idx]
+            adjust_idx = idx - (num_to_corrupt - 1 - i)
+            indices += adjust_idx
 
-        return tokens, 4, []
+        return tokens, 4, indices
 
 class bert_sentencepair_dataset(bert_dataset):
     """
@@ -902,22 +907,22 @@ class bert_corrupt_sentences_dataset(bert_dataset):
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        is_random_next = None
-
         tokens = self.get_sentence(target_seq_length, rng)
 
-        corrupted = 0
+        corrupted = False
         ids = []
-        x = rng.random()
-        num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
-        if x < 0.2:
-            tokens, corrupted, ids = self.corrupt_permute(tokens, rng, num_to_corrupt)
-        elif x < 0.4:
-            tokens, corrupted, ids = self.corrupt_replace(tokens, rng, num_to_corrupt)
-        elif x < 0.6:
-            tokens, corrupted, ids = self.corrupt_insert(tokens, rng, num_to_corrupt)
-        elif x < 0.8:
-            tokens, corrupted, ids = self.corrupt_delete(tokens, rng, num_to_corrupt)
+        if rng.random() < 0.5:
+            corrupted = True
+            x = rng.random()
+            num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
+            if x < 0.25:
+                tokens, _, ids = self.corrupt_permute(tokens, rng, num_to_corrupt)
+            elif x < 0.5:
+                tokens, _, ids = self.corrupt_replace(tokens, rng, num_to_corrupt)
+            elif x < 0.75:
+                tokens, _, ids = self.corrupt_insert(tokens, rng, num_to_corrupt)
+            else:
+                tokens, _, ids = self.corrupt_delete(tokens, rng, num_to_corrupt)
 
         return tokens, corrupted, ids
 
@@ -1030,19 +1035,21 @@ class bert_combined_sentences_dataset(bert_dataset):
         tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=True)
 
         tokens = [tokens_a, tokens_b]
-        corrupted = [0, 0]
+        corrupted = [False, False]
         ids = [[], []]
 
         for i in range(2):
-            x = rng.random()
-            num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
-            if x < 0.2:
-                tokens[i], corrupted[i], ids[i] = self.corrupt_permute(tokens[i], rng, num_to_corrupt)
-            elif x < 0.4:
-                tokens[i], corrupted[i], ids[i] = self.corrupt_replace(tokens[i], rng, num_to_corrupt)
-            elif x < 0.6:
-                tokens[i], corrupted[i], ids[i] = self.corrupt_insert(tokens[i], rng, num_to_corrupt)
-            elif x < 0.8:
-                tokens[i], corrupted[i], ids[i] = self.corrupt_delete(tokens[i], rng, num_to_corrupt)
+            if rng.random() < 0.5:
+                corrupted[i] = True
+                x = rng.random()
+                num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
+                if x < 0.25:
+                    tokens[i], _, ids[i] = self.corrupt_permute(tokens, rng, num_to_corrupt)
+                elif x < 0.5:
+                    tokens[i], _, ids[i] = self.corrupt_replace(tokens, rng, num_to_corrupt)
+                elif x < 0.75:
+                    tokens[i], _, ids[i] = self.corrupt_insert(tokens, rng, num_to_corrupt)
+                else:
+                    tokens[i], _, ids[i] = self.corrupt_delete(tokens, rng, num_to_corrupt)
 
         return tokens, corrupted, ids

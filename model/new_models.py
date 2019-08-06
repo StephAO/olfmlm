@@ -63,7 +63,7 @@ class Corrupt(PreTrainedBertModel):
         super(Corrupt, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.corrupted = BertNSPHead(config, num_classes=5)
+        self.corrupted = BertNSPHead(config, num_classes=2)
         # self.cls = BertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
@@ -122,7 +122,7 @@ class Combined(PreTrainedBertModel):
         super(Combined, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.corrupted = BertNSPHead(config, num_classes=5)
+        self.corrupted = BertNSPHead(config, num_classes=2)
         self.apply(self.init_bert_weights)
 
     def cosine_similarity(self, a, b):

@@ -175,14 +175,13 @@ class BertEmbedderModule(nn.Module):
                 v = None if s2 is None else \
                     self.model(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
 
-                if self.two_models:
-                    u2 = self.model_2(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-                    v2 = None if s2 is None else \
-                        self.model_2(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-                    u = torch.cat([u, u2], dim=2)
-                    v = None if v is None else torch.cat([v, v2], dim=2)
-
-                h_enc = self.normalize(u * v) if v is not None else u
+                # if self.two_models:
+                #     u2 = self.model_2(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
+                #     v2 = None if s2 is None else \
+                #         self.model_2(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
+                #     u = torch.cat([u, u2], dim=2)
+                #     v = None if v is None else torch.cat([v, v2], dim=2)
+                h_enc = u if v is None else torch.cat(u, v, u - v, self.normalize(u * v), dim=2)
 
             else:
                 token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
@@ -208,5 +207,7 @@ class BertEmbedderModule(nn.Module):
     def get_output_dim(self):
         if self.embeddings_mode == "cat" or self.two_models:
             return 2 * self.model.config.hidden_size
+        elif self.split:
+            return 4 * self.model.config.hidden_size
         else:
             return self.model.config.hidden_size
