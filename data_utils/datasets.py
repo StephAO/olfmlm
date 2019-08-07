@@ -480,8 +480,8 @@ class bert_dataset(data.Dataset):
 
     def sentence_split(self, document, min_length):
         """split document into sentences"""
-        #if len(document.split(" ")) < min_length:
-        #    return None
+        if len(document.split(" ")) < min_length:
+            return None
         lines = document.split('\n')
         if self.presplit_sentences:
             return [line for line in lines if line]
@@ -537,6 +537,8 @@ class bert_dataset(data.Dataset):
         Truncate sequence pair according to original BERT implementation:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
         """
+        if len(a) > max_seq_len:
+            print("That's really weird", len(a), max_seq_len)
         if self.use_types:
             tokens_a, token_types_a = a
         else:
@@ -585,7 +587,7 @@ class bert_dataset(data.Dataset):
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
-    def get_sentence(self, target_seq_length, rng, sentence_num=0, split=False):
+    def get_sentence(self, target_seq_length, rng, sentence_num=0, split_seq_len=None, split=False):
 
         tokens = []
         token_types = []
@@ -608,6 +610,8 @@ class bert_dataset(data.Dataset):
                     sentence = doc[end_idx]
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, end_idx == 0,
                                                                       end_idx == len(doc))
+                    if len(sentence) + len(tokens) > target_seq_length:
+                        break
                     tokens = tokens + sentence
                     if self.use_types:
                          token_types = token_types + sentence_types
@@ -616,6 +620,8 @@ class bert_dataset(data.Dataset):
                     sentence = doc[start_idx]
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, start_idx == 0,
                                                                       start_idx == len(doc))
+                    if len(sentence) + len(tokens) > target_seq_length:
+                        break
                     tokens = sentence + tokens
                     if self.use_types:
                         token_types = sentence_types + token_types
@@ -632,17 +638,16 @@ class bert_dataset(data.Dataset):
                     token_types = []
                     split_points = []
                     continue
-                target_split = int(target_seq_length / 2)
-                spi = bisect_right(split_points, target_seq_length / 2)
-                if len(split_points) == 1:
-                    split_idx = split_points[0]
-                elif spi == len(split_points):
-                    split_idx = split_points[spi - 2]
-                elif abs(split_points[spi - 1] - target_split) < abs(split_points[spi] - target_split):
-                    split_idx = split_points[spi - 1]
-                else:
-                    split_idx =  split_points[min(spi, len(split_points) - 2)]
-                tokens = (tokens[:split_idx], tokens[split_idx:])
+                target_split = int(split_seq_len)
+                first_split = -1
+                second_split = -1
+                for i in range(len(split_points)):
+                    if first_split == -1 and split_points[i + 1] > split_seq_len:
+                        first_split = split_points[i]
+                    elif split_points[i + 1] - first_split > split_seq_len:
+                        second_split = split_points[i]
+                        break
+                tokens = (tokens[:first_split], tokens[first_split:second_split])
 
                 str_type_a = 'str' + str(0)
                 str_type_b = 'str' + str(1)
