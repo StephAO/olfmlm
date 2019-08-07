@@ -459,7 +459,7 @@ class bert_dataset(data.Dataset):
         self.max_seq_len = max_seq_len
         self.mask_lm_prob = mask_lm_prob
         if max_preds_per_seq is None:
-            max_preds_per_seq = math.ceil(max_seq_len*mask_lm_prob /10)*10
+            max_preds_per_seq = math.ceil(max_seq_len*mask_lm_prob / 10)*10
         self.max_preds_per_seq = max_preds_per_seq
         self.dataset_size = dataset_size
         if self.dataset_size is None:
@@ -480,8 +480,8 @@ class bert_dataset(data.Dataset):
 
     def sentence_split(self, document, min_length):
         """split document into sentences"""
-        if len(document.split(" ")) < min_length:
-            return None
+        #if len(document.split(" ")) < min_length:
+        #    return None
         lines = document.split('\n')
         if self.presplit_sentences:
             return [line for line in lines if line]
@@ -579,7 +579,7 @@ class bert_dataset(data.Dataset):
     def pad_seq(self, seq):
         """helper function to pad sequence pair"""
         #if len(seq) != self.max_seq_len:
-        #    print("----->", len(seq))
+        #print("----->", len(seq))
         num_pad = max(0, self.max_seq_len - len(seq))
         pad_mask = [0] * len(seq) + [1] * num_pad
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
@@ -593,11 +593,11 @@ class bert_dataset(data.Dataset):
 
         while not tokens:
             doc = None
+            doc_idx = rng.randint(0, self.ds_len - 1)
             while doc is None:
-                doc_idx = rng.randint(0, self.ds_len - 1)
                 doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
                 if not doc:
-                    doc = None
+                    doc_idx = (doc_idx + 1) % self.ds_len
 
             end_idx = rng.randint(0, len(doc) - 1)
             start_idx = end_idx - 1
@@ -744,7 +744,7 @@ class bert_dataset(data.Dataset):
         for i, idx in enumerate(sorted(cand_indices[:num_to_corrupt], reverse=True)):
             del tokens[idx]
             adjust_idx = idx - (num_to_corrupt - 1 - i)
-            indices += adjust_idx
+            indices += [adjust_idx - 1, adjust_idx]
 
         return tokens, 4, indices
 
@@ -1044,12 +1044,12 @@ class bert_combined_sentences_dataset(bert_dataset):
                 x = rng.random()
                 num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
                 if x < 0.25:
-                    tokens[i], _, ids[i] = self.corrupt_permute(tokens, rng, num_to_corrupt)
+                    tokens[i], _, ids[i] = self.corrupt_permute(tokens[i], rng, num_to_corrupt)
                 elif x < 0.5:
-                    tokens[i], _, ids[i] = self.corrupt_replace(tokens, rng, num_to_corrupt)
+                    tokens[i], _, ids[i] = self.corrupt_replace(tokens[i], rng, num_to_corrupt)
                 elif x < 0.75:
-                    tokens[i], _, ids[i] = self.corrupt_insert(tokens, rng, num_to_corrupt)
+                    tokens[i], _, ids[i] = self.corrupt_insert(tokens[i], rng, num_to_corrupt)
                 else:
-                    tokens[i], _, ids[i] = self.corrupt_delete(tokens, rng, num_to_corrupt)
+                    tokens[i], _, ids[i] = self.corrupt_delete(tokens[i], rng, num_to_corrupt)
 
         return tokens, corrupted, ids

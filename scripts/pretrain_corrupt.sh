@@ -22,7 +22,7 @@ python3 -m sentence-encoders.pretrain_bert \
     --warmup .01 \
     --weight-decay 1e-2 \
     --clip-grad 1.0 \
-    --num-workers 2 \
+    --num-workers 1 \
     --epochs 1 \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
     --save /scratch/gobi1/stephaneao/trained_berts/corrupt/ \
