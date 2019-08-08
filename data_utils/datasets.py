@@ -587,7 +587,7 @@ class bert_dataset(data.Dataset):
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
-    def get_sentence(self, target_seq_length, rng, sentence_num=0, split_seq_len=None, split=False):
+    def get_sentence(self, target_seq_length, rng, sentence_num=0, split=False):
 
         tokens = []
         token_types = []
@@ -638,13 +638,12 @@ class bert_dataset(data.Dataset):
                     token_types = []
                     split_points = []
                     continue
-                target_split = int(split_seq_len)
                 first_split = -1
                 second_split = -1
                 for i in range(len(split_points)):
-                    if first_split == -1 and split_points[i + 1] > split_seq_len:
+                    if first_split == -1 and split_points[i + 1] > split:
                         first_split = split_points[i]
-                    elif split_points[i + 1] - first_split > split_seq_len:
+                    elif split_points[i + 1] - first_split > split:
                         second_split = split_points[i]
                         break
                 tokens = (tokens[:first_split], tokens[first_split:second_split])
@@ -800,7 +799,7 @@ class bert_sentencepair_dataset(bert_dataset):
             tokens_b, token_types_b = self.get_sentence(target_seq_length - a_length, rng, sentence_num=1)
         else:
             is_random_next = False
-            tokens, token_types = self.get_sentence(target_seq_length, rng, sentence_num=0, split=True)
+            tokens, token_types = self.get_sentence(target_seq_length, rng, sentence_num=0, split=target_seq_length)
             tokens_a, tokens_b = tokens
             token_types_a, token_types_b = token_types
 
@@ -953,7 +952,7 @@ class bert_rg_sentences_dataset(bert_dataset):
         # get rng state corresponding to index (allows deterministic random pair)
         rng = random.Random(idx)
         # get seq length
-        target_seq_length = self.max_seq_len * 2
+        target_seq_length = self.max_seq_len
         # get sentence pair and label
         a, b = self.create_random_sentencepair(target_seq_length, rng)
         while (len(a) < 1) or (len(b) < 1):
@@ -981,7 +980,7 @@ class bert_rg_sentences_dataset(bert_dataset):
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=True)
+        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
         return tokens_a, tokens_b
 
 ### ADDED BY STEPHANE ###
@@ -1037,7 +1036,7 @@ class bert_combined_sentences_dataset(bert_dataset):
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=True)
+        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
 
         tokens = [tokens_a, tokens_b]
         corrupted = [False, False]
