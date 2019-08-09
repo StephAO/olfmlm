@@ -451,6 +451,7 @@ class bert_dataset(data.Dataset):
     """
     def __init__(self, use_types, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=.01, dataset_size=None, presplit_sentences=False, **kwargs):
         self.use_types = use_types
+        self.avg_len = []
         self.ds = ds
         self.ds_len = len(self.ds)
         self.tokenizer = self.ds.GetTokenizer()
@@ -537,8 +538,8 @@ class bert_dataset(data.Dataset):
         Truncate sequence pair according to original BERT implementation:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
         """
-        if len(a) > max_seq_len:
-            print("That's really weird", len(a), max_seq_len)
+        #if len(a) > max_seq_len:
+        #    print("That's really weird", len(a), max_seq_len)
         if self.use_types:
             tokens_a, token_types_a = a
         else:
@@ -580,8 +581,9 @@ class bert_dataset(data.Dataset):
 
     def pad_seq(self, seq):
         """helper function to pad sequence pair"""
-        #if len(seq) != self.max_seq_len:
-        #print("----->", len(seq))
+        self.avg_len.append(len(seq))
+        if len(self.avg_len) == 100000:
+            print("Tokens (min, mean, max):", np.min(self.avg_len), np.mean(self.avg_len), np.max(self.avg_len))
         num_pad = max(0, self.max_seq_len - len(seq))
         pad_mask = [0] * len(seq) + [1] * num_pad
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
@@ -633,21 +635,34 @@ class bert_dataset(data.Dataset):
                     break
 
             if split:
-                if len(split_points) == 0:
+                if len(split_points) < 2:
                     tokens = []
                     token_types = []
                     split_points = []
                     continue
+                
                 first_split = -1
                 second_split = -1
                 for i in range(len(split_points)):
+                    if i + 1 >= len(split_points):
+                        break
                     if first_split == -1 and split_points[i + 1] > split:
                         first_split = split_points[i]
-                    elif split_points[i + 1] - first_split > split:
+                    elif i + 1 >= len(split_points):
+                        second_split = split_points[-1]
+                    elif first_split != -1 and split_points[i + 1] - first_split > split:
                         second_split = split_points[i]
                         break
+                
+                if first_split == -1 or second_split == -1:
+                    tokens = []
+                    token_types = []
+                    split_points = []
+                    continue
                 tokens = (tokens[:first_split], tokens[first_split:second_split])
-
+                #if len(tokens[0]) > 128 or len(tokens[1]) > 128:
+                #    print("-->", first_split, second_split)
+                #    print(split_points)
                 str_type_a = 'str' + str(0)
                 str_type_b = 'str' + str(1)
                 token_types_a = [self.tokenizer.get_type(str_type_a).Id]*len(tokens[0])
@@ -799,7 +814,7 @@ class bert_sentencepair_dataset(bert_dataset):
             tokens_b, token_types_b = self.get_sentence(target_seq_length - a_length, rng, sentence_num=1)
         else:
             is_random_next = False
-            tokens, token_types = self.get_sentence(target_seq_length, rng, sentence_num=0, split=target_seq_length)
+            tokens, token_types = self.get_sentence(target_seq_length * 1.25, rng, sentence_num=0, split=int(target_seq_length * 0.6))
             tokens_a, tokens_b = tokens
             token_types_a, token_types_b = token_types
 

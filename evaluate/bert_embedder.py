@@ -181,7 +181,7 @@ class BertEmbedderModule(nn.Module):
                 #         self.model_2(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
                 #     u = torch.cat([u, u2], dim=2)
                 #     v = None if v is None else torch.cat([v, v2], dim=2)
-                h_enc = u if v is None else torch.cat(u, v, u - v, self.normalize(u * v), dim=2)
+                h_enc = torch.cat((u,u,u,u), dim=2) if v is None else torch.cat((u, v, u - v, self.normalize(u * v)), dim=2)
 
             else:
                 token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)

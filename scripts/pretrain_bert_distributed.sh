@@ -10,7 +10,7 @@ NODE_RANK=0
 DISTRIBUTED_ARGS="--nproc_per_node $WORLD_SIZE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
 python -m torch.distributed.launch $DISTRIBUTED_ARGS \
-  pretrain_bert.py \
+  sentence-encoders.pretrain_bert \
     --batch-size 32 \
     --tokenizer-type BertWordPieceTokenizer \
     --cache-dir cache_dir \
