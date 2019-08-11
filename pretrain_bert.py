@@ -182,7 +182,7 @@ def forward_step(data, model, criterion, args):
                                            sentence_label.view(-1).contiguous()).mean()
         corrupted_loss = criterion_sentence(corrupted.contiguous().float(),
                                             corrupted_label.view(-1).contiguous()).mean()
-        sentence_loss = (sentence_loss + corrupted_loss) / 2
+        sentence_loss = (sentence_loss + corrupted_loss) / 4
     else:
         mlm, sentence = output
         sentence_loss = criterion_sentence(sentence.contiguous().float(),

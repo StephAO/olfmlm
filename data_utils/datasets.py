@@ -877,7 +877,7 @@ class bert_split_sentences_dataset(bert_dataset):
             tokens_b = self.get_sentence(target_seq_length, rng, sentence_num=1)
         else:
             is_random_next = False
-            tokens = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=True)
+            tokens = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
             tokens_a, tokens_b = tokens
 
         return tokens_a, tokens_b, is_random_next
