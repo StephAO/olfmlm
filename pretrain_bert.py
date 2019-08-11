@@ -221,7 +221,7 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
         torch.distributed.all_reduce(reduced_losses.data)
         reduced_losses.data = reduced_losses.data / args.world_size
         model.allreduce_params(reduce_after=False,
-                               fp32_allreduce=args.fp32_allreduce)
+                               fp32_allreduce=False)#args.fp32_allreduce)
         lm_loss_reduced = reduced_losses[0]
         nsp_loss_reduced = reduced_losses[1]
 
