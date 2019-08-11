@@ -17,11 +17,11 @@
 
 import torch
 
-from .modeling import BertConfig
-from .modeling import BertForPreTraining as Bert, BertForMaskedLM as BertMLM
-from .modeling import BertLayerNorm
+from sentence_encoders.model.modeling import BertConfig
+from sentence_encoders.model.modeling import BertForPreTraining as Bert, BertForMaskedLM as BertMLM
+from sentence_encoders.model.modeling import BertLayerNorm
 
-from .new_models import Split, Corrupt, ReferentialGame, Combined
+from sentence_encoders.model.new_models import Split, Corrupt, ReferentialGame, Combined
 
 sentence_encoders = {
     "bert" : Bert,

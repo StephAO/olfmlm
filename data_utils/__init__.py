@@ -16,13 +16,13 @@
 import os
 import math
 
-from .samplers import DistributedBatchSampler
-from .datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, bert_sentencepair_dataset, \
-                      bert_split_sentences_dataset, bert_corrupt_sentences_dataset, bert_rg_sentences_dataset, \
-                      bert_combined_sentences_dataset
-from .lazy_loader import exists_lazy, make_lazy, lazy_array_loader
-from .tokenization import Tokenization, CommandToken, Tokenizer, CharacterLevelTokenizer, BertWordPieceTokenizer, make_tokenizer
-from . import corpora
+from sentence_encoders.data_utils.samplers import DistributedBatchSampler
+from sentence_encoders.data_utils.datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, \
+                      bert_sentencepair_dataset, bert_split_sentences_dataset, bert_corrupt_sentences_dataset, \
+                      bert_rg_sentences_dataset, bert_combined_sentences_dataset
+from sentence_encoders.data_utils.lazy_loader import exists_lazy, make_lazy, lazy_array_loader
+from sentence_encoders.data_utils.tokenization import Tokenization, CommandToken, Tokenizer, CharacterLevelTokenizer, BertWordPieceTokenizer, make_tokenizer
+import sentence_encoders.data_utils.corpora
 
 TRAIN_DATA = 0
 VAL_DATA = 1

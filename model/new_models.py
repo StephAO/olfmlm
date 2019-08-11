@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
-from .modeling import *
+from sentence_encoders.model.modeling import *
 
 class BertNSPHead(nn.Module):
     def __init__(self, config, num_classes=2):
@@ -100,6 +100,17 @@ class ReferentialGame(PreTrainedBertModel):
     def inner_product(self, a, b):
         return torch.mm(a, b.transpose(0, 1))
 
+    def mse(self, a, b):
+        '''
+        taken from: https://discuss.pytorch.org/t/efficient-distance-matrix-computation/9065/3
+        '''
+        a_norm = (a ** 2).sum(1).view(-1, 1)
+        b_t = torch.transpose(b, 0, 1)
+        b_norm = (b ** 2).sum(1).view(1, -1)
+        dist = a_norm + b_norm - 2.0 * torch.mm(a, b_t)
+
+        return torch.clamp(dist, 0.0, np.inf)
+
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, next_sentence_label=None, checkpoint_activations=False):
         seq_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), None, torch.cat(attention_mask, dim=0),
                                               output_all_encoded_layers=False,
@@ -107,7 +118,7 @@ class ReferentialGame(PreTrainedBertModel):
         half = len(input_ids[0])
         send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
         lm_scores = self.lm(seq_output)
-        rg_scores = self.cosine_similarity(send_emb, recv_emb)
+        rg_scores = self.mse(send_emb, recv_emb)
 
         return lm_scores, rg_scores
 

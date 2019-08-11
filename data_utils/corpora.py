@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """several datasets with preset arguments"""
-from .datasets import json_dataset, csv_dataset
+from sentence_encoders.data_utils.datasets import json_dataset, csv_dataset
 
 class wikipedia(json_dataset):
 	"""

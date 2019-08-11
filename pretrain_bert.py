@@ -22,16 +22,16 @@ import random
 import numpy as np
 import torch
 
-from .arguments import get_args
-from .configure_data import configure_data
-from .learning_rates import AnnealingLR
-from .model import BertModel
-from .model import get_params_for_weight_decay_optimization
-from .model import DistributedDataParallel as DDP
-from .optim import Adam
-from .utils import Timers
-from .utils import save_checkpoint
-from .utils import load_checkpoint
+from sentence_encoders.arguments import get_args
+from sentence_encoders.configure_data import configure_data
+from sentence_encoders.learning_rates import AnnealingLR
+from sentence_encoders.model import BertModel
+from sentence_encoders.model import get_params_for_weight_decay_optimization
+from sentence_encoders.model import DistributedDataParallel as DDP
+from sentence_encoders.optim import Adam
+from sentence_encoders.utils import Timers
+from sentence_encoders.utils import save_checkpoint
+from sentence_encoders.utils import load_checkpoint
 
 
 def get_model(tokenizer, args):

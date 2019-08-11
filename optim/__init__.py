@@ -23,4 +23,4 @@ from torch.optim import Rprop
 from torch.optim import RMSprop
 from torch.optim import Optimizer
 from torch.optim import LBFGS
-from .adam import Adam
+from sentence_encoders.optim.adam import Adam

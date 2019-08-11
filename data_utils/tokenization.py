@@ -23,7 +23,7 @@ nltk.download('punkt')
 from nltk import tokenize as nltk_tokenize
 import sentencepiece as spm
 
-from .wordpiece import BertTokenizer, PRETRAINED_VOCAB_ARCHIVE_MAP
+from sentence_encoders.data_utils.wordpiece import BertTokenizer, PRETRAINED_VOCAB_ARCHIVE_MAP
 
 def make_tokenizer(tokenizer_type, corpus, model_path=None, vocab_size=None, model_type='bpe', pad_token=0, character_coverage=1.0, command_tokens=None, type_tokens=None, **kwargs):
     """

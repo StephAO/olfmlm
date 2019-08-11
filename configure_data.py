@@ -17,8 +17,7 @@
 
 import copy
 import torch
-from . import data_utils
-
+from sentence_encoders import data_utils
 
 class DataConfig:
 

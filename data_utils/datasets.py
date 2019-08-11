@@ -31,8 +31,8 @@ import nltk
 nltk.download('punkt')
 from nltk import tokenize
 
-from .lazy_loader import lazy_array_loader, exists_lazy, make_lazy
-from .tokenization import Tokenization
+from sentence_encoders.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
+from sentence_encoders.data_utils.tokenization import Tokenization
 
 class ConcatDataset(data.Dataset):
     """
