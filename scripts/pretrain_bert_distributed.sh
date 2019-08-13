@@ -34,6 +34,6 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
     --bert-config-file /h/stephaneao/trained_berts/config_file.json \
     --save /h/stephaneao/trained_berts/ \
     --num-workers 1 \
-    --model-type 'bert' \
+    --model-type 'bertmlm' \
     --track-results True
 #    --lr-decay-iters 990000 \

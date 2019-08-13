@@ -155,7 +155,7 @@ def get_batch(data):
 
     return (tokens, types, sentence_label, loss_mask, lm_labels, padding_mask)
 
-def forward_step(data, model, criterion, args):
+def forward_step(data, model, criterion, args, iteration):
     """Forward step."""
 
     # if args.model_type == "corrupt":
@@ -178,11 +178,20 @@ def forward_step(data, model, criterion, args):
         mlm, sentence, corrupted = output
         corrupted_label = sentence_label
         sentence_label = torch.arange(tokens[0].shape[0]).cuda()
-        sentence_loss = criterion_sentence(sentence.contiguous().float(),
+        next_sent_loss = criterion_sentence(sentence.contiguous().float(),
                                            sentence_label.view(-1).contiguous()).mean()
         corrupted_loss = criterion_sentence(corrupted.contiguous().float(),
                                             corrupted_label.view(-1).contiguous()).mean()
-        sentence_loss = (sentence_loss + corrupted_loss) / 4
+        
+        lt = int(iteration / 100.) % 3
+        if iteration == -1:
+            sentence_loss = (next_sent_loss + corrupted_loss)
+        elif lt == 0:
+            sentence_loss = torch.Tensor([0]).cuda()
+        elif lt == 1:
+            sentence_loss = next_sent_loss
+        elif lt == 2:
+            sentence_loss = corrupted_loss
     else:
         mlm, sentence = output
         sentence_loss = criterion_sentence(sentence.contiguous().float(),
@@ -232,11 +241,11 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
     return lm_loss_reduced, nsp_loss_reduced
 
 
-def train_step(input_data, model, criterion, optimizer, lr_scheduler, args):
+def train_step(input_data, model, criterion, optimizer, lr_scheduler, args, i):
     """Single training step."""
 
     # Forward model for one step.
-    lm_loss, nsp_loss = forward_step(input_data, model, criterion, args)
+    lm_loss, nsp_loss = forward_step(input_data, model, criterion, args, i)
 
     # Calculate gradients, reduce across processes, and clip.
     lm_loss_reduced, nsp_loss_reduced = backward_step(optimizer, model, lm_loss,
@@ -281,7 +290,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                                                      criterion,
                                                      optimizer,
                                                      lr_scheduler,
-                                                     args)
+                                                     args,
+                                                     iteration)
         skipped_iters += skipped_iter
         iteration += 1
 
@@ -340,7 +350,7 @@ def evaluate(data_source, model, criterion, args):
         while iteration < max_iters:
             # Forward evaluation.
             lm_loss, nsp_loss = forward_step(next(data_iterator), model,
-                                             criterion, args)
+                                             criterion, args, -1)
             # Reduce across processes.
             if isinstance(model, DDP):
                 reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))

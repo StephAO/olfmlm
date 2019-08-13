@@ -400,6 +400,7 @@ def _get_task(name, args, data_path, scratch_path):
     # TODO: refactor to always read from disk, even if task is constructed
     # here. This should avoid subtle bugs from deserialization issues.
     if os.path.isfile(pkl_path) and not args.reload_tasks:
+        print(pkl_path)
         task = pkl.load(open(pkl_path, "rb"))
         log.info("\tLoaded existing task %s", name)
     else:

@@ -89,6 +89,7 @@ class ReferentialGame(PreTrainedBertModel):
         self.bert = BertModel(config)
         # self.receiver = BertModel(config_small)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
+        #self.corrupted = BertOnlyNSPHead(config)
         self.apply(self.init_bert_weights)
 
     def cosine_similarity(self, a, b):
@@ -99,6 +100,9 @@ class ReferentialGame(PreTrainedBertModel):
 
     def inner_product(self, a, b):
         return torch.mm(a, b.transpose(0, 1))
+
+    def normalize(self, x):
+        return (x - torch.mean(x, 1, keepdim=True)) / torch.std(x, 1, keepdim=True)
 
     def mse(self, a, b):
         '''
@@ -118,7 +122,7 @@ class ReferentialGame(PreTrainedBertModel):
         half = len(input_ids[0])
         send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
         lm_scores = self.lm(seq_output)
-        rg_scores = self.mse(send_emb, recv_emb)
+        rg_scores = self.cosine_similarity(send_emb, recv_emb)
 
         return lm_scores, rg_scores
 

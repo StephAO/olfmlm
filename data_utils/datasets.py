@@ -808,7 +808,7 @@ class bert_sentencepair_dataset(bert_dataset):
         """
         is_random_next = None
         a_length = rng.randint(int(target_seq_length * 0.4), int(target_seq_length * 0.6))
-        if rng.random() < 0.5:
+        if rng.random() < 0.0:
             is_random_next = True
             tokens_a, token_types_a = self.get_sentence(a_length, rng, sentence_num=0)
             tokens_b, token_types_b = self.get_sentence(target_seq_length - a_length, rng, sentence_num=1)
