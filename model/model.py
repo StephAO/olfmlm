@@ -18,19 +18,9 @@
 import torch
 
 from sentence_encoders.model.modeling import BertConfig
-from sentence_encoders.model.modeling import BertForPreTraining as Bert, BertForMaskedLM as BertMLM
 from sentence_encoders.model.modeling import BertLayerNorm
 
-from sentence_encoders.model.new_models import Split, Corrupt, ReferentialGame, Combined
-
-sentence_encoders = {
-    "bert" : Bert,
-    "split" : Split,
-    "corrupt": Corrupt,
-    "referential_game": ReferentialGame,
-    "bertmlm": BertMLM,
-    "combined": Combined
-}
+from sentence_encoders.model.new_models import Bert
 
 def get_params_for_weight_decay_optimization(module):
 
@@ -69,19 +59,13 @@ class BertModel(torch.nn.Module):
             raise ValueError("If not using a pretrained_bert, please specify a bert config file")
         self.config = BertConfig(args.bert_config_file)
         model_args = [self.config]
-        self.model_type = args.model_type
         # if self.model_type == "referential_game":
         #     self.small_config = BertConfig(args.bert_small_config_file)
         #     model_args.append(self.small_config)
-        self.model = sentence_encoders[self.model_type](*model_args)
+        self.model = Bert(*model_args)
 
-    def forward(self, input_tokens, token_type_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
-        if self.model_type == "split":
-            r = self.model(input_tokens, first_pass, token_type_ids, attention_mask,
-                           checkpoint_activations=checkpoint_activations)
-        else:
-            r = self.model(input_tokens, token_type_ids, attention_mask, checkpoint_activations=checkpoint_activations)
-        return r
+    def forward(self, mode, input_tokens, token_type_ids=None, task_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
+        return self.model(mode, input_tokens, token_type_ids, task_ids, attention_mask, checkpoint_activations=checkpoint_activations)
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):
         return self.model.state_dict(destination=destination, prefix=prefix,
@@ -95,20 +79,8 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
-        if self.model_type in ["split", "corrupt", "combined"]:
-            param_groups += list(get_params_for_weight_decay_optimization(self.model.corrupted.seq_relationship))
-            param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
-            param_groups[1]['params'].append(self.model.lm.predictions.bias)
-        elif self.model_type == "referential_game":
-            # param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.encoder.layer))
-            # param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.pooler))
-            # param_groups += list(get_params_for_weight_decay_optimization(self.model.receiver.embeddings))
-            param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
-            param_groups[1]['params'].append(self.model.lm.predictions.bias)
-        else:
-            if self.model_type != "bertmlm":
-                param_groups += list(get_params_for_weight_decay_optimization(self.model.cls.seq_relationship))
-            param_groups += list(get_params_for_weight_decay_optimization(self.model.cls.predictions.transform))
-            param_groups[1]['params'].append(self.model.cls.predictions.bias)
+        param_groups += list(get_params_for_weight_decay_optimization(self.model.corrupted.seq_relationship))
+        param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
+        param_groups[1]['params'].append(self.model.lm.predictions.bias)
 
         return param_groups

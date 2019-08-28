@@ -449,7 +449,7 @@ class bert_dataset(data.Dataset):
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
-    def __init__(self, use_types, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=.01, dataset_size=None, presplit_sentences=False, **kwargs):
+    def __init__(self, use_types, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01, dataset_size=None, presplit_sentences=False, **kwargs):
         self.use_types = use_types
         self.avg_len = []
         self.ds = ds
@@ -466,9 +466,92 @@ class bert_dataset(data.Dataset):
         if self.dataset_size is None:
             self.dataset_size = self.ds_len * (self.ds_len-1)
         self.presplit_sentences = presplit_sentences
+        self.corrupt_per_sentence = 0.05
+        self.target_seq_length = self.max_seq_len
 
     def __len__(self):
         return self.dataset_size
+
+    def set_args(self, mode):
+        self.mode = mode
+        self.split_percent = 0.0
+        self.corruption_rate = 0.0
+        self.num_sent_per_seq = 1
+        self.target_seq_length = self.max_seq_len
+        self.concat = False
+        if self.mode == "mlm":
+            self.split_percent = 0.5
+            self.num_sent_per_seq = 2
+            self.target_seq_length = int(self.max_seq_len / 2)
+            self.concat = True
+            self.task_id = 0
+        elif self.mode == "nsp":
+            self.split_percent = 0.5
+            self.num_sent_per_seq = 2
+            self.task_id = 1
+        elif self.mode == "rg":
+            self.num_sent_per_seq = 2
+            self.task_id = 2
+        elif self.mode == "corrupt":
+            self.corruption_rate = 0.05
+            self.task_id = 3
+
+    def __getitem__(self, idx):
+        # get rng state corresponding to index (allows deterministic random pair)
+        rng = random.Random(idx)
+        # get seq length
+        target_seq_length = self.max_seq_len
+        # get sentence pair and label
+        sentence_label = None
+        tokens = []
+
+        while (sentence_label is None) or any([len(x) < 1 for x in tokens]):
+            tokens, token_types, sentence_label, do_not_mask_ids = self.create_random_sentencepair(target_seq_length, rng)
+        # truncate sentence pair to max_seq_len
+        self.truncate_sequences(tokens, token_types, self.max_seq_len, rng)
+        # join sentence pair, mask, and pad
+        output, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(tokens, token_types, self.mask_lm_prob,
+                                                                                self.max_preds_per_seq,
+                                                                                self.vocab_words, rng, self.concat,
+                                                                                do_not_mask_ids)
+        sample = {'sent_label': int(sentence_label), 'n': len(output)}
+        for i in range(len(output)):
+            tokens, token_types = output[i]
+            sample.update({'text_' + str(i): np.array(tokens), 'types_' + str(i): np.array(token_types),
+                           'task_' + str(i): np.full_like(tokens, self.task_id),
+                           'mask_' + str(i): np.array(mask[i]), 'mask_labels_' + str(i): np.array(mask_labels[i]),
+                           'pad_mask_' + str(i): np.array(pad_mask[i])})
+        return sample
+
+    def create_random_sentencepair(self, target_seq_length, rng):
+        """
+        fetches a random sentencepair corresponding to rng state similar to
+        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
+        """
+        sentence_label = False
+        # either split or corrupt not both
+        assert self.split_percent * self.corruption_rate == 0
+        split = bool(rng.random() < self.split_percent)
+        if split: # Split sequence
+            sentence_label = True
+            tokens = []
+            token_types = []
+            for i in range(self.num_sent_per_seq):
+                tok, tok_types = self.get_sentence(target_seq_length, rng, sentence_num=i)
+                tokens.append(tok)
+                token_types.append(token_types)
+        else: # Contiguous sequence
+            tokens, token_types = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0,
+                                                    split=target_seq_length)
+
+        corrupted = bool(rng.random() < self.corruption_rate)
+        ids = []
+        if corrupted:
+            sentence_label = True
+            for i in range(len(tokens)):
+                ids.append(self.corrupt_seq(tokens[i], token_types[i], rng))
+
+        return tokens, token_types, sentence_label, ids
 
     def sentence_tokenize(self, sent, sentence_num=0, beginning=False, ending=False):
         """tokenize sentence and get token types if tokens=True"""
@@ -499,67 +582,27 @@ class bert_dataset(data.Dataset):
             rtn = rtn['text']
         return rtn
 
-    def truncate_seq_pair(self, a, b, max_seq_len, rng):
+    def truncate_sequences(self, tokens, token_types, max_seq_len, rng):
         """
         Truncate sequence pair according to original BERT implementation:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
         """
-        tokens_a, token_types_a = a
-        tokens_b, token_types_b = b
-        max_num_tokens = max_seq_len - 3
-        pop_from = None
+        max_num_tokens = max_seq_len - 1 - len(tokens)
         while True:
-            len_a = len(tokens_a)
-            len_b = len(tokens_b)
-            total_length = len_a + len_b
+            lengths = [len(s) for s in tokens]
+            total_length = sum(lengths)
             if total_length <= max_num_tokens:
                 break
-            if len(tokens_a) > len(tokens_b):
-                trunc_tokens = tokens_a
-                trunc_types = token_types_a
-                pop_from = "front"
-            else:
-                trunc_tokens = tokens_b
-                trunc_types = token_types_b
-                pop_from = "back"
+            trunc_idx = np.argmax(lengths)
 
-            assert len(trunc_tokens) >= 1
+            assert len(tokens[trunc_idx]) >= 1
 
-            if pop_from == "front" or (pop_from is None and rng.random() < 0.5):
-                trunc_tokens.pop(0)
-                trunc_types.pop(0)
+            if rng.random() < 0.5:
+                tokens[trunc_idx].pop(0)
+                token_types[trunc_idx].pop(0)
             else:
-                trunc_tokens.pop()
-                trunc_types.pop()
-        return (tokens_a, token_types_a), (tokens_b, token_types_b)
-
-    def truncate_seq(self, a, max_seq_len, rng, pop_from=None):
-        """
-        Truncate sequence pair according to original BERT implementation:
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
-        """
-        #if len(a) > max_seq_len:
-        #    print("That's really weird", len(a), max_seq_len)
-        if self.use_types:
-            tokens_a, token_types_a = a
-        else:
-            tokens_a = a
-        max_num_tokens = max_seq_len - 2
-        while True:
-            len_a = len(tokens_a)
-            if len_a <= max_num_tokens:
-                break
-            assert len(tokens_a) >= 1
-            if pop_from == "front" or (pop_from is None and rng.random() < 0.5):
-                tokens_a.pop(0)
-                if self.use_types:
-                    token_types_a.pop(0)
-            else:
-                tokens_a.pop()
-                if self.use_types:
-                    token_types_a.pop()
-        output = (tokens_a, token_types_a) if self.use_types else tokens_a
-        return output
+                tokens[trunc_idx].pop()
+                token_types[trunc_idx].pop()
 
     def mask_token(self, idx, tokens, types, vocab_words, rng):
         """
@@ -595,9 +638,10 @@ class bert_dataset(data.Dataset):
         token_types = []
         split_points = []
 
+        doc = None
+        doc_idx = rng.randint(0, self.ds_len - 1)
+
         while not tokens:
-            doc = None
-            doc_idx = rng.randint(0, self.ds_len - 1)
             while doc is None:
                 doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
                 if not doc:
@@ -615,8 +659,7 @@ class bert_dataset(data.Dataset):
                     if len(sentence) + len(tokens) > target_seq_length:
                         break
                     tokens = tokens + sentence
-                    if self.use_types:
-                         token_types = token_types + sentence_types
+                    token_types = token_types + sentence_types
                     end_idx += 1
                 elif start_idx >= 0:
                     sentence = doc[start_idx]
@@ -625,22 +668,12 @@ class bert_dataset(data.Dataset):
                     if len(sentence) + len(tokens) > target_seq_length:
                         break
                     tokens = sentence + tokens
-                    if self.use_types:
-                        token_types = sentence_types + token_types
+                    token_types = sentence_types + token_types
                     start_idx -= 1
                 else:
-                    #print("Full document is too small, returning a small sequence")
-                    #print("Length {}, number of sentences {}, start idx {}, end idx {}" .format(len(tokens), len(doc),
-                    #                                                                            start_idx, end_idx))
                     break
 
             if split:
-                if len(split_points) < 2:
-                    tokens = []
-                    token_types = []
-                    split_points = []
-                    continue
-                
                 first_split = -1
                 second_split = -1
                 for i in range(len(split_points)):
@@ -648,89 +681,94 @@ class bert_dataset(data.Dataset):
                         break
                     if first_split == -1 and split_points[i + 1] > split:
                         first_split = split_points[i]
-                    elif i + 1 >= len(split_points):
-                        second_split = split_points[-1]
                     elif first_split != -1 and split_points[i + 1] - first_split > split:
                         second_split = split_points[i]
                         break
-                
-                if first_split == -1 or second_split == -1:
+
+                # Not able to split document in a way that works for training, try a different doc
+                if -1 in [first_split, second_split] or \
+                                        len(tokens[:first_split]) * len(tokens[first_split:second_split]) == 0:
                     tokens = []
                     token_types = []
                     split_points = []
+                    doc_idx = (doc_idx + 1) % self.ds_len
                     continue
+
                 tokens = (tokens[:first_split], tokens[first_split:second_split])
-                #if len(tokens[0]) > 128 or len(tokens[1]) > 128:
-                #    print("-->", first_split, second_split)
-                #    print(split_points)
-                str_type_a = 'str' + str(0)
-                str_type_b = 'str' + str(1)
-                token_types_a = [self.tokenizer.get_type(str_type_a).Id]*len(tokens[0])
-                token_types_b = [self.tokenizer.get_type(str_type_b).Id]*len(tokens[1])
+                token_types_a = [self.tokenizer.get_type('str' + str(0)).Id]*len(tokens[0])
+                token_types_b = [self.tokenizer.get_type('str' + str(1)).Id]*len(tokens[1])
                 token_types = (token_types_a, token_types_b)
-                if len(tokens[0]) == 0 or len(tokens[1]) == 0:
-                    tokens = []
-                    token_types = []
-                    split_points = []
-                    continue
 
-        return (tokens, token_types) if self.use_types else tokens
+        return tokens, token_types
 
-    def create_masked_lm_predictions(self, a, b, mask_lm_prob, max_preds_per_seq, vocab_words, rng, do_not_mask_tokens=[]):
+    def create_masked_lm_predictions(self, tokens, token_types, mask_lm_prob, max_preds_per_seq, vocab_words, rng,
+                                     concat=False, do_not_mask_tokens=[]):
         """
         Mask sequence pair for BERT training according to:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L338
         """
-        tokens_a, token_types_a = a if self.use_types else (a, None)
-        len_a = len(tokens_a)
-        if self.use_types:
-            tokens_b, token_types_b = b
-            len_b = len(tokens_b)
-            tokens = [self.tokenizer.get_command('ENC').Id] + tokens_a + [self.tokenizer.get_command('sep').Id] + tokens_b + [self.tokenizer.get_command('sep').Id]
-            token_types = [token_types_a[0]] + token_types_a + [token_types_a[0]] + token_types_b + [token_types_b[0]]
-            cand_indices = [idx + 1 for idx in range(len_a)] + [idx + 2 + len_a for idx in range(len_b)]
-            output_types, _ = self.pad_seq(list(token_types))
+        cand_indices = []
+        if concat:
+            masked_tokens = [self.tokenizer.get_command('ENC').Id]
+            masked_tt = [token_types[0][0]]
+            cum_len = 1
+            cd = []
+            for i in range(len(tokens)):
+                masked_tokens += tokens[i] + [self.tokenizer.get_command('sep').Id]
+                masked_tt += token_types[i] + [token_types[i][0]]
+                cd += [idx + cum_len for idx in range(len(tokens[i]))]
+                cum_len += len(tokens[i]) + 1
+            masked_tt, _ = self.pad_seq(masked_tt)
+            tokens = [masked_tokens]
+            token_types = [masked_tt]
+            cand_indices = [cd]
         else:
-            tokens = [self.tokenizer.get_command('ENC').Id] + tokens_a + [self.tokenizer.get_command('sep').Id]
-            cand_indices = [idx + 1 for idx in range(len_a)]
-            output_types = None
+            for i in range(len(tokens)):
+                tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
+                token_types[i] = [token_types[i][0]] + token_types[i] + [token_types[i][0]]
+                token_types[i], _ = self.pad_seq(token_types[i])
+                cand_indices += [[idx + 1 for idx in range(tokens[i])]]
 
-        rng.shuffle(cand_indices)
+        output = [[] for _ in range(len(tokens))]
+        output_tokens = [[] for _ in range(len(tokens))]
+        mask = [[] for _ in range(len(tokens))]
+        mask_labels = [[] for _ in range(len(tokens))]
+        pad_mask = [[] for _ in range(len(tokens))]
+        for i in range(len(tokens)):
+            rng.shuffle(cand_indices[i])
 
+            output_tokens[i], pad_mask[i] = self.pad_seq(list(tokens[i]))
+            num_to_predict = min(max_preds_per_seq, max(1, int(round(len(tokens[i]) * mask_lm_prob))))
 
-        output_tokens, pad_mask = self.pad_seq(list(tokens))
+            mask[i] = [0] * len(output_tokens[i])
+            mask_labels[i] = [-1] * len(output_tokens[i])
 
+            for idx in sorted(cand_indices[i][:num_to_predict]):
+                while idx in do_not_mask_tokens:
+                    idx = (idx + 1) % len(mask[i])
+                mask[i][idx] = 1
+                label = self.mask_token(idx, tokens[i], token_types[i], vocab_words, rng)
+                mask_labels[i][idx] = label
 
-        num_to_predict = min(max_preds_per_seq, max(1, int(round(len(tokens) * mask_lm_prob))))
-
-        mask = [0] * len(output_tokens)
-        mask_labels = [-1] * len(output_tokens)
-
-        for idx in sorted(cand_indices[:num_to_predict]):
-            while idx in do_not_mask_tokens:
-                idx = (idx + 1) % len(mask)
-            mask[idx] = 1
-            label = self.mask_token(idx, output_tokens, output_types, vocab_words, rng)
-            mask_labels[idx] = label
-
-        output = (output_tokens, output_types) if self.use_types else output_tokens
+            output = (output_tokens[i], token_types[i])
 
         return output, mask, mask_labels, pad_mask
 
-    def corrupt_replace(self, tokens, rng, num_to_corrupt):
+    def corrupt_replace(self, tokens, token_types, rng, num_to_corrupt):
         indices = []
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
 
         for idx in sorted(cand_indices[:num_to_corrupt]):
             tokens[idx] = rng.choice(self.vocab_words)
-            indices += [idx - 1, idx, idx + 1]
+            indices += [idx]
+            # indices += [idx - 1, idx, idx + 1]
 
-        return tokens, 1, indices
+        return indices
 
-    def corrupt_permute(self, tokens, rng, num_to_corrupt):
+    def corrupt_permute(self, tokens, token_types, rng, num_to_corrupt):
         if len(tokens) < 2:
-            return tokens, 0, []
+            return []
 
         indices = []
         cand_indices = [idx for idx in range(len(tokens))]
@@ -738,337 +776,48 @@ class bert_dataset(data.Dataset):
 
         for idx in sorted(cand_indices[:num_to_corrupt]):
             if idx + 1 >= len(tokens):
-                idx -= 1
+                continue
             tokens[idx], tokens[idx + 1] = tokens[idx + 1], tokens[idx]
-            indices += [idx - 1, idx, idx + 1, idx + 2]
+            token_types[idx], token_types[idx + 1] = token_types[idx + 1], token_types[idx]
+            indices += [idx, idx + 1]
+            # indices += [idx - 1, idx, idx + 1, idx + 2]
 
-        return tokens, 2, indices
+        return indices
 
-    def corrupt_insert(self, tokens, rng, num_to_corrupt):
+    def corrupt_insert(self, tokens, token_types, rng, num_to_corrupt):
         indices = []
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
 
         for idx in sorted(cand_indices[:num_to_corrupt]):
-            tokens = tokens[:idx] + [rng.choice(self.vocab_words)] + tokens[idx:]
-            indices += [idx - 1, idx, idx + 1]
+            tokens.inser(idx, rng.choice(self.vocab_words))
+            token_types.insert(idx, token_types[idx])
+            indices += [idx]
+            # indices += [idx - 1, idx, idx + 1]
 
-        return tokens, 3, indices
+        return indices
 
-    def corrupt_delete(self, tokens, rng, num_to_corrupt):
+    def corrupt_delete(self, tokens, token_types, rng, num_to_corrupt):
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
         indices = []
 
         for i, idx in enumerate(sorted(cand_indices[:num_to_corrupt], reverse=True)):
             del tokens[idx]
-            adjust_idx = idx - (num_to_corrupt - 1 - i)
-            indices += [adjust_idx - 1, adjust_idx]
+            del token_types[idx]
+            # adjust_idx = idx - (num_to_corrupt - 1 - i)
+            # indices += [adjust_idx - 1, adjust_idx]
 
-        return tokens, 4, indices
+        return indices
 
-class bert_sentencepair_dataset(bert_dataset):
-    """
-    Dataset containing sentencepairs for BERT training. Each index corresponds to a randomly generated sentence pair.
-    Arguments:
-        ds (Dataset or array-like): data corpus to use for training
-        max_seq_len (int): maximum sequence length to use for a sentence pair
-        mask_lm_prob (float): proportion of tokens to mask for masked LM
-        max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
-
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(True, *args, **kwargs)
-
-    def __getitem__(self, idx):
-        # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx)
-        # get seq length
-        target_seq_length = self.max_seq_len
-        # get sentence pair and label
-        is_random_next = None
-        lena = 0
-        lenb = 0
-        while (is_random_next is None) or (lena < 1) or (lenb < 1):
-            tokensa, tokensb, is_random_next = self.create_random_sentencepair(target_seq_length, rng)
-            lena = len(tokensa[0])
-            lenb = len(tokensb[0])
-        # truncate sentence pair to max_seq_len
-        tokensa, tokensb = self.truncate_seq_pair(tokensa, tokensb, self.max_seq_len, rng)
-        # join sentence pair, mask, and pad
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(tokensa, tokensb, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample = {'text': np.array(tokens[0]), 'types': np.array(tokens[1]), 'sent_label': int(is_random_next), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
-        return sample
-
-    def create_random_sentencepair(self, target_seq_length, rng):
-        """
-        fetches a random sentencepair corresponding to rng state similar to
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
-        """
-        is_random_next = None
-        a_length = rng.randint(int(target_seq_length * 0.4), int(target_seq_length * 0.6))
-        if rng.random() < 0.0:
-            is_random_next = True
-            tokens_a, token_types_a = self.get_sentence(a_length, rng, sentence_num=0)
-            tokens_b, token_types_b = self.get_sentence(target_seq_length - a_length, rng, sentence_num=1)
+    def corrupt_seq(self, tokens, token_types, rng):
+        x = rng.random()
+        num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
+        if x < (1. / 3.):
+            ids = self.corrupt_permute(tokens, token_types, rng, num_to_corrupt)
+        elif x < (2. / 3.):
+            ids = self.corrupt_replace(tokens, token_types, rng, num_to_corrupt)
         else:
-            is_random_next = False
-            tokens, token_types = self.get_sentence(target_seq_length * 1.25, rng, sentence_num=0, split=int(target_seq_length * 0.6))
-            tokens_a, tokens_b = tokens
-            token_types_a, token_types_b = token_types
+            ids = self.corrupt_insert(tokens, token_types, rng, num_to_corrupt)
+        return ids
 
-
-        output_a = (tokens_a, token_types_a)
-        output_b = (tokens_b, token_types_b)
-
-        return output_a, output_b, is_random_next
-
-### ADDED BY STEPHANE ###
-class bert_split_sentences_dataset(bert_dataset):
-    """
-    Dataset containing sentencepairs for BERT training. Each index corresponds to a randomly generated sentence pair.
-    Arguments:
-        ds (Dataset or array-like): data corpus to use for training
-        max_seq_len (int): maximum sequence length to use for a sentence pair
-        mask_lm_prob (float): proportion of tokens to mask for masked LM
-        max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
-
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(False, *args, **kwargs)
-
-    def __getitem__(self, idx):
-        # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx)
-        # get seq length
-        target_seq_length = self.max_seq_len
-        # get sentence pair and label
-        is_random_next = None
-
-        while (is_random_next is None) or (len(a) < 1) or (len(b) < 1):
-            a, b, is_random_next = self.create_random_sentencepair(target_seq_length, rng)
-        # truncate sentences to max_seq_len
-        a = self.truncate_seq(a, self.max_seq_len, rng, pop_from="front")
-        b = self.truncate_seq(b, self.max_seq_len, rng, pop_from="back")
-        # Mask and pad sentence pair
-        sample = {}
-        sample['sent_label'] = int(is_random_next)
-        # A #
-        tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        # B #
-        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng)
-        sample.update({'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
-                       'pad_mask': np.array(pad_mask_a),
-                       'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
-                       'pad_mask2': np.array(pad_mask_b)})
-        return sample
-
-    def create_random_sentencepair(self, target_seq_length, rng):
-        """
-        fetches a random sentencepair corresponding to rng state similar to
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
-        """
-        is_random_next = None
-        if rng.random() < 0.5:
-            is_random_next = True
-            tokens_a = self.get_sentence(target_seq_length, rng, sentence_num=0)
-            tokens_b = self.get_sentence(target_seq_length, rng, sentence_num=1)
-        else:
-            is_random_next = False
-            tokens = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
-            tokens_a, tokens_b = tokens
-
-        return tokens_a, tokens_b, is_random_next
-
-
-### ADDED BY STEPHANE ###
-class bert_corrupt_sentences_dataset(bert_dataset):
-    """
-    Dataset containing sentencepairs for BERT training. Each index corresponds to a randomly generated sentence pair.
-    Arguments:
-        ds (Dataset or array-like): data corpus to use for training
-        max_seq_len (int): maximum sequence length to use for a sentence pair
-        mask_lm_prob (float): proportion of tokens to mask for masked LM
-        max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
-
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(False, *args, **kwargs)
-        self.corrupt_per_sentence = 0.05
-
-    def __len__(self):
-        return self.dataset_size
-
-    def __getitem__(self, idx):
-        # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx)
-        # get seq length
-        target_seq_length = self.max_seq_len
-        # get sentence pair and label
-        corrupted = None
-
-        while (corrupted is None) or (len(a) < 1):
-            a, corrupted, ids = self.create_sentence(target_seq_length, rng)
-        # truncate sentences to max_seq_len
-        a = self.truncate_seq(a, self.max_seq_len, rng)
-
-        # Mask and pad sentence pair
-        tokens, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(a, None, self.mask_lm_prob, self.max_preds_per_seq, self.vocab_words, rng, do_not_mask_tokens=ids)
-        sample = {'text': np.array(tokens), 'sent_label': int(corrupted), 'mask': np.array(mask), 'mask_labels': np.array(mask_labels), 'pad_mask': np.array(pad_mask)}
-
-        return sample
-
-    def create_sentence(self, target_seq_length, rng):
-        """
-        fetches a random sentencepair corresponding to rng state similar to
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
-        """
-        tokens = self.get_sentence(target_seq_length, rng)
-
-        corrupted = False
-        ids = []
-        if rng.random() < 0.5:
-            corrupted = True
-            x = rng.random()
-            num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
-            if x < 0.25:
-                tokens, _, ids = self.corrupt_permute(tokens, rng, num_to_corrupt)
-            elif x < 0.5:
-                tokens, _, ids = self.corrupt_replace(tokens, rng, num_to_corrupt)
-            elif x < 0.75:
-                tokens, _, ids = self.corrupt_insert(tokens, rng, num_to_corrupt)
-            else:
-                tokens, _, ids = self.corrupt_delete(tokens, rng, num_to_corrupt)
-
-        return tokens, corrupted, ids
-
-
-class bert_rg_sentences_dataset(bert_dataset):
-    """
-    Dataset containing sentencepairs for BERT training. Each index corresponds to a randomly generated sentence pair.
-    Arguments:
-        ds (Dataset or array-like): data corpus to use for training
-        max_seq_len (int): maximum sequence length to use for a sentence pair
-        mask_lm_prob (float): proportion of tokens to mask for masked LM
-        max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
-
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(False, *args, **kwargs)
-
-    def __len__(self):
-        return self.dataset_size
-
-    def __getitem__(self, idx):
-        # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx)
-        # get seq length
-        target_seq_length = self.max_seq_len
-        # get sentence pair and label
-        a, b = self.create_random_sentencepair(target_seq_length, rng)
-        while (len(a) < 1) or (len(b) < 1):
-            a, b = self.create_random_sentencepair(target_seq_length, rng)
-        # truncate sentences to max_seq_len
-        a = self.truncate_seq(a, self.max_seq_len, rng, pop_from="front")
-        b = self.truncate_seq(b, self.max_seq_len, rng, pop_from="back")
-        # Mask and pad sentence pair
-        # A #
-        tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob,
-                                                                                self.max_preds_per_seq,
-                                                                                self.vocab_words, rng)
-        # B #
-        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob,
-                                                                                self.max_preds_per_seq,
-                                                                                self.vocab_words, rng)
-        sample = {'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
-                  'pad_mask': np.array(pad_mask_a),
-                  'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
-                  'pad_mask2': np.array(pad_mask_b)}
-        return sample
-
-    def create_random_sentencepair(self, target_seq_length, rng):
-        """
-        fetches a random sentencepair corresponding to rng state similar to
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
-        """
-        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
-        return tokens_a, tokens_b
-
-### ADDED BY STEPHANE ###
-class bert_combined_sentences_dataset(bert_dataset):
-    """
-    Dataset containing sentencepairs for BERT training. Each index corresponds to a randomly generated sentence pair.
-    Arguments:
-        ds (Dataset or array-like): data corpus to use for training
-        max_seq_len (int): maximum sequence length to use for a sentence pair
-        mask_lm_prob (float): proportion of tokens to mask for masked LM
-        max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
-
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(False, *args, **kwargs)
-        self.corrupt_per_sentence = 0.05
-
-    def __getitem__(self, idx):
-        # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx)
-        # get seq length
-        target_seq_length = self.max_seq_len * 2
-        # get sentence pair and label
-        (a, b), (c_a, c_b), (ids_a, ids_b) = self.create_random_sentencepair(target_seq_length, rng)
-        while (len(a) < 1) or (len(b) < 1):
-            (a, b), (c_a, c_b), (ids_a, ids_b) = self.create_random_sentencepair(target_seq_length, rng)
-        # truncate sentences to max_seq_len
-        a = self.truncate_seq(a, self.max_seq_len, rng, pop_from="front")
-        b = self.truncate_seq(b, self.max_seq_len, rng, pop_from="back")
-
-        # Mask and pad sentence pair
-        # A #
-        tok_a, mask_a, m_labs_a, pad_mask_a = self.create_masked_lm_predictions(a, None, self.mask_lm_prob,
-                                                                                self.max_preds_per_seq,
-                                                                                self.vocab_words, rng,
-                                                                                do_not_mask_tokens=ids_a)
-        # B #
-        tok_b, mask_b, m_labs_b, pad_mask_b = self.create_masked_lm_predictions(b, None, self.mask_lm_prob,
-                                                                                self.max_preds_per_seq,
-                                                                                self.vocab_words, rng,
-                                                                                do_not_mask_tokens=ids_b)
-        sample = {'sent_label': (c_a, c_b),
-                  'text': np.array(tok_a), 'mask': np.array(mask_a), 'mask_labels': np.array(m_labs_a),
-                  'pad_mask': np.array(pad_mask_a),
-                  'text2': np.array(tok_b), 'mask2': np.array(mask_b), 'mask_labels2': np.array(m_labs_b),
-                  'pad_mask2': np.array(pad_mask_b)}
-
-        return sample
-
-    def create_random_sentencepair(self, target_seq_length, rng):
-        """
-        fetches a random sentencepair corresponding to rng state similar to
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
-        """
-        tokens_a, tokens_b = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0, split=target_seq_length)
-
-        tokens = [tokens_a, tokens_b]
-        corrupted = [False, False]
-        ids = [[], []]
-
-        for i in range(2):
-            if rng.random() < 0.5:
-                corrupted[i] = True
-                x = rng.random()
-                num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
-                if x < 0.25:
-                    tokens[i], _, ids[i] = self.corrupt_permute(tokens[i], rng, num_to_corrupt)
-                elif x < 0.5:
-                    tokens[i], _, ids[i] = self.corrupt_replace(tokens[i], rng, num_to_corrupt)
-                elif x < 0.75:
-                    tokens[i], _, ids[i] = self.corrupt_insert(tokens[i], rng, num_to_corrupt)
-                else:
-                    tokens[i], _, ids[i] = self.corrupt_delete(tokens[i], rng, num_to_corrupt)
-
-        return tokens, corrupted, ids

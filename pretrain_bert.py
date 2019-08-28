@@ -96,11 +96,6 @@ def setup_model_and_optimizer(args, tokenizer):
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
     criterion = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
 
-    # if args.model_type == "corrupt":
-    #     weights = torch.FloatTensor([1., 4., 4., 4., 4.]).cuda()
-    #     c2 = torch.nn.CrossEntropyLoss(weight=weights, reduce=False, ignore_index=-1)
-    #     criterion = (criterion, c2)
-
     if args.load is not None:
         epoch, i, total_iters = load_checkpoint(model, optimizer,
                                                 lr_scheduler, args)
@@ -125,96 +120,57 @@ def get_batch(data):
     to the seq_len dimension in the LSTM. A Variable representing an appropriate
     shard reset mask of the same dimensions is also returned.
     '''
-    if 'sent_label' not in data:
-        sentence_label = torch.arange(data['text'].shape[0])
-    elif isinstance(data['sent_label'], list):
-        sentence_label = torch.cat(data['sent_label'], dim=0) 
-    else:
-        sentence_label = data['sent_label']
-
+    sentence_label = data['sent_label']
     sentence_label = torch.autograd.Variable(sentence_label.long()).cuda()
     # Optional data
-    types = None
-    if 'types' in data:
-        types = torch.autograd.Variable(data['types'].long())
-        types = types.cuda()
+    num_sentences = data['n']
+    tokens = []
+    types = []
+    tasks = []
+    loss_mask = []
+    lm_labels = []
+    att_mask = []
+    for i in range(num_sentences):
+        suffix = "_" + str(i)
+        tokens.append(torch.autograd.Variable(data['text' + suffix].long()).cuda())
+        types.append(torch.autograd.Variable(data['types' + suffix].long()).cuda())
+        tasks.append(torch.autograd.Variable(data['task' + suffix].long()).cuda())
+        att_mask.append(1 - torch.autograd.Variable(data['pad_mask' + suffix].byte()).cuda())
+        lm_labels.append((data['mask_labels'] + suffix).long())
+        loss_mask.append((data['mask'] + suffix).float())
 
-    if 'text2' in data:
-        tokens = (torch.autograd.Variable(data['text'].long()).cuda(),
-                  torch.autograd.Variable(data['text2'].long()).cuda())
-        padding_mask = (torch.autograd.Variable(data['pad_mask'].byte()).cuda(),
-                        torch.autograd.Variable(data['pad_mask2'].byte()).cuda())
-        lm_labels = torch.autograd.Variable(torch.cat((data['mask_labels'], data['mask_labels2']), dim=0).long()).cuda()
-        loss_mask = torch.autograd.Variable(torch.cat((data['mask'], data['mask2']), dim=0).float()).cuda()
+    lm_labels = torch.autograd.Variable(torch.cat(lm_labels, dim=0).long()).cuda()
+    loss_mask = torch.autograd.Variable(torch.cat(loss_mask, dim=0).float()).cuda()
 
-    else:
-        tokens = torch.autograd.Variable(data['text'].long()).cuda()
-        padding_mask = torch.autograd.Variable(data['pad_mask'].byte()).cuda()
-        loss_mask = torch.autograd.Variable(data['mask'].float()).cuda()
-        lm_labels = torch.autograd.Variable(data['mask_labels'].long()).cuda()
+    return (tokens, types, tasks, sentence_label, loss_mask, lm_labels, att_mask)
 
-    return (tokens, types, sentence_label, loss_mask, lm_labels, padding_mask)
-
-def forward_step(data, model, criterion, args, iteration):
+def forward_step(data, model, criterion, args, iteration, mode):
     """Forward step."""
-
-    # if args.model_type == "corrupt":
-    #     criterion, criterion_sentence = criterion
-    # else:
     criterion_sentence = criterion
 
     # Get the batch.
     batch = get_batch(data)
 
-    tokens, types, sentence_label, loss_mask, lm_labels, padding_mask = batch
+    tokens, types, tasks, sentence_label, loss_mask, lm_labels, att_mask = batch
+    if mode == "rg":
+        sentence_label = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     # Forward model.
-    att_mask = (1 - padding_mask[0], 1 - padding_mask[1]) if isinstance(padding_mask, tuple) else 1 - padding_mask
-    output = model(tokens, types, att_mask, checkpoint_activations=args.checkpoint_activations)
+    mlm_scores, sent_scores = model(tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
 
-    if args.model_type == "bertmlm":
-        mlm = output
-        sentence_loss = torch.Tensor([0]).cuda()
-    elif args.model_type == "combined":
-        mlm, sentence, corrupted = output
-        corrupted_label = sentence_label
-        sentence_label = torch.arange(tokens[0].shape[0]).cuda()
-        next_sent_loss = criterion_sentence(sentence.contiguous().float(),
-                                           sentence_label.view(-1).contiguous()).mean()
-        corrupted_loss = criterion_sentence(corrupted.contiguous().float(),
-                                            corrupted_label.view(-1).contiguous()).mean()
-        
-        lt = int(iteration / 100.) % 3
-        if iteration == -1:
-            sentence_loss = (next_sent_loss + corrupted_loss)
-        elif lt == 0:
-            sentence_loss = torch.Tensor([0]).cuda()
-        elif lt == 1:
-            sentence_loss = next_sent_loss
-        elif lt == 2:
-            sentence_loss = corrupted_loss
-    else:
-        mlm, sentence = output
-        sentence_loss = criterion_sentence(sentence.contiguous().float(),
-                                           sentence_label.view(-1).contiguous()).mean()
+    if mode == "mlm":
+        loss = criterion(mlm_scores.view(-1, args.data_size).contiguous().float(),
+                             lm_labels.contiguous().view(-1).contiguous())
+        loss_mask = loss_mask.contiguous()
+        loss_mask = loss_mask.view(-1)
+        lm_loss = torch.sum(loss * loss_mask.view(-1).float()) / loss_mask.sum()
+    else: # nsp, corrupt, rg
+        loss = criterion_sentence(sent_scores.contiguous().float(),
+                                  sentence_label.view(-1).contiguous()).mean()
 
-    mlm_loss = criterion(mlm.view(-1, args.data_size).contiguous().float(),
-                         lm_labels.contiguous().view(-1).contiguous())
+    return loss
 
-    loss_mask = loss_mask.contiguous()
-    loss_mask = loss_mask.view(-1)
-    lm_loss = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
-
-    return lm_loss, sentence_loss
-
-def backward_step(optimizer, model, lm_loss, nsp_loss, args):
+def backward_step(optimizer, model, loss, args):
     """Backward step."""
-
-    # Total loss.
-    if args.model_type == "bertmlm":
-        loss = lm_loss
-    else:
-        loss = lm_loss + nsp_loss
-
     # Backward pass.
     optimizer.zero_grad()
 
@@ -223,33 +179,28 @@ def backward_step(optimizer, model, lm_loss, nsp_loss, args):
     loss.backward()
 
     # Reduce across processes.
-    lm_loss_reduced = lm_loss
-    nsp_loss_reduced = nsp_loss
+    loss_reduced = loss
     if args.world_size > 1:
-        reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
-        torch.distributed.all_reduce(reduced_losses.data)
-        reduced_losses.data = reduced_losses.data / args.world_size
+        # reduced_losses = torch.cat((loss.view(1), nsp_loss.view(1)))
+        torch.distributed.all_reduce(loss_reduced.data)
+        loss_reduced.data = loss_reduced.data / args.world_size
         model.allreduce_params(reduce_after=False,
                                fp32_allreduce=False)#args.fp32_allreduce)
-        lm_loss_reduced = reduced_losses[0]
-        nsp_loss_reduced = reduced_losses[1]
-
     # Clipping gradients helps prevent the exploding gradient.
     if args.clip_grad > 0:
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
-    return lm_loss_reduced, nsp_loss_reduced
+    return loss_reduced
 
 
-def train_step(input_data, model, criterion, optimizer, lr_scheduler, args, i):
+def train_step(input_data, model, criterion, optimizer, lr_scheduler, args, mode):
     """Single training step."""
 
     # Forward model for one step.
-    lm_loss, nsp_loss = forward_step(input_data, model, criterion, args, i)
+    loss = forward_step(input_data, model, criterion, args, mode)
 
     # Calculate gradients, reduce across processes, and clip.
-    lm_loss_reduced, nsp_loss_reduced = backward_step(optimizer, model, lm_loss,
-                                                      nsp_loss, args)
+    loss_reduced = backward_step(optimizer, model, loss, args)
 
     # Update parameters.
     optimizer.step()
@@ -258,7 +209,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, args, i):
     skipped_iter = 0
     lr_scheduler.step()
 
-    return lm_loss_reduced, nsp_loss_reduced, skipped_iter
+    return loss_reduced, skipped_iter
 
 
 def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args):
@@ -285,13 +236,17 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     timers('interval time').start()
     while iteration < max_iters:
 
-        lm_loss, nsp_loss, skipped_iter = train_step(next(data_iterator),
+        # TODO set mode
+        mode = args.modes[iteration % epoch]
+        train_data.dataset.set_args(mode)
+
+        loss, skipped_iter = train_step(next(data_iterator),
                                                      model,
                                                      criterion,
                                                      optimizer,
                                                      lr_scheduler,
                                                      args,
-                                                     iteration)
+                                                     mode)
         skipped_iters += skipped_iter
         iteration += 1
 

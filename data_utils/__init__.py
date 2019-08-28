@@ -18,8 +18,7 @@ import math
 
 from sentence_encoders.data_utils.samplers import DistributedBatchSampler
 from sentence_encoders.data_utils.datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, \
-                      bert_sentencepair_dataset, bert_split_sentences_dataset, bert_corrupt_sentences_dataset, \
-                      bert_rg_sentences_dataset, bert_combined_sentences_dataset
+                                                  bert_dataset
 from sentence_encoders.data_utils.lazy_loader import exists_lazy, make_lazy, lazy_array_loader
 from sentence_encoders.data_utils.tokenization import Tokenization, CommandToken, Tokenizer, CharacterLevelTokenizer, BertWordPieceTokenizer, make_tokenizer
 import sentence_encoders.data_utils.corpora
@@ -27,15 +26,6 @@ import sentence_encoders.data_utils.corpora
 TRAIN_DATA = 0
 VAL_DATA = 1
 TEST_DATA = 2
-
-dataset_types = { 
-    'bert': bert_sentencepair_dataset,
-    'bertmlm': bert_sentencepair_dataset,
-    'split': bert_split_sentences_dataset,
-    'corrupt': bert_corrupt_sentences_dataset,
-    'referential_game': bert_rg_sentences_dataset,
-    'combined': bert_combined_sentences_dataset
-}
 
 def should_split(split):
     """
@@ -112,7 +102,7 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
                                     pad_token, character_converage, **kwargs)
 
     ds_type = ''
-    ds_subtype = dataset_types[enc_model_type]
+    ds_subtype = bert_dataset
     if 'ds_type' in kwargs:
         ds_type = kwargs['ds_type']
     ds.SetTokenizer(tokenizer)
