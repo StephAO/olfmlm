@@ -3,7 +3,7 @@
 RANK=0
 WORLD_SIZE=1
 
-python3 sentence-encoders/pretrain_bert.py \
+python3 sentence_encoders/pretrain_bert.py \
     --batch-size 32 \
     --tokenizer-type BertWordPieceTokenizer \
     --cache-dir cache_dir \
@@ -24,7 +24,8 @@ python3 sentence-encoders/pretrain_bert.py \
     --clip-grad 1.0 \
     --num-workers 1 \
     --epochs 1 \
-    --bert-config-file /h/stephaneao/trained_berts/config_file.json \
+    --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
     --save /scratch/gobi1/stephaneao/trained_berts/bert/ \
     --model-type 'bert' \
-    --track-results True
+    --modes 'bert' \
+    --track-results False

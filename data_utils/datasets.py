@@ -449,8 +449,7 @@ class bert_dataset(data.Dataset):
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
-    def __init__(self, use_types, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01, dataset_size=None, presplit_sentences=False, **kwargs):
-        self.use_types = use_types
+    def __init__(self, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01, dataset_size=None, presplit_sentences=False, **kwargs):
         self.avg_len = []
         self.ds = ds
         self.ds_len = len(self.ds)
@@ -473,8 +472,10 @@ class bert_dataset(data.Dataset):
         return self.dataset_size
 
     def set_args(self, mode):
+        print("setting up args")
         self.mode = mode
         self.split_percent = 0.0
+        print(self.split_percent, type(self))
         self.corruption_rate = 0.0
         self.num_sent_per_seq = 1
         self.target_seq_length = self.max_seq_len

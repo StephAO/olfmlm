@@ -139,7 +139,9 @@ def add_training_args(parser):
                        'training. One of [gloo, nccl]')
     group.add_argument('--local_rank', type=int, default=None,
                        help='local rank passed from distributed launcher')
-
+    # training modes
+    group.add_argument('--modes', default='bert',
+                       help='comma separated list of training modes to use in order')
     return parser
 
 

@@ -15,5 +15,6 @@
   "fp32_layernorm": true,
   "fp32_embedding": true,
   "fp32_tokentypes": false,
-  "fp16": false
+  "fp16": false,
+  "num_tasks": 4
 }

@@ -64,7 +64,7 @@ class Bert(PreTrainedBertModel):
     """
 
     def __init__(self, config):
-        super(BertForPreTraining, self).__init__(config)
+        super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.sent = BertOnlyNSPHead(config)

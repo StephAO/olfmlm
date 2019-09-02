@@ -79,7 +79,7 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
-        param_groups += list(get_params_for_weight_decay_optimization(self.model.corrupted.seq_relationship))
+        param_groups += list(get_params_for_weight_decay_optimization(self.model.sent.seq_relationship))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
         param_groups[1]['params'].append(self.model.lm.predictions.bias)
 

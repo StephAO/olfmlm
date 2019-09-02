@@ -232,12 +232,13 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     # Data iterator.
     data_iterator = iter(train_data)
+    modes = args.modes.split(',')
 
     timers('interval time').start()
     while iteration < max_iters:
 
         # TODO set mode
-        mode = args.modes[iteration % epoch]
+        mode = modes[iteration % epoch]
         train_data.dataset.set_args(mode)
 
         loss, skipped_iter = train_step(next(data_iterator),
