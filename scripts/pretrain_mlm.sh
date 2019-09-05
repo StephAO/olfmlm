@@ -27,5 +27,5 @@ python3 sentence_encoders/pretrain_bert.py \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
     --save /scratch/gobi1/stephaneao/trained_berts/bert/ \
     --model-type 'bert' \
-    --modes 'mlm, nsp' \
+    --modes 'mlm' \
     --track-results False
