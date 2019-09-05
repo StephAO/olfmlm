@@ -219,8 +219,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     model.train()
 
     # Tracking loss.
-    total_lm_loss = 0.0
-    total_nsp_loss = 0.0
+    total_losses = {}
 
     # Iterations.
     max_iters = args.train_iters
@@ -231,7 +230,6 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         args.resume_dataloader = False
 
     # Data iterator.
-    data_iterator = iter(train_data)
     modes = args.modes.split(',')
 
     timers('interval time').start()
@@ -241,25 +239,27 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         mode = modes[iteration % epoch]
         train_data.dataset.set_args(mode)
 
-        loss, skipped_iter = train_step(next(data_iterator),
-                                                     model,
-                                                     criterion,
-                                                     optimizer,
-                                                     lr_scheduler,
-                                                     args,
-                                                     mode)
+        loss, skipped_iter = train_step(next(train_data),
+                                        model,
+                                        criterion,
+                                        optimizer,
+                                        lr_scheduler,
+                                        args,
+                                        mode)
         skipped_iters += skipped_iter
         iteration += 1
 
         # Update losses.
-        total_lm_loss += lm_loss.data.detach().float()
-        total_nsp_loss += nsp_loss.data.detach().float()
+        cum_loss, count = total_losses.get(mode, (0.0, 0.0))
+        total_losses[mode] = (cum_loss + loss.data.detach().float(), count + 1.0)
 
         # Logging.
         if iteration % args.log_interval == 0:
             learning_rate = optimizer.param_groups[0]['lr']
-            avg_nsp_loss = total_nsp_loss.item() / args.log_interval
-            avg_lm_loss = total_lm_loss.item() / args.log_interval
+            avg_loss = {}
+            for mode, v in total_losses.items():
+                avg_loss[mode] = v[0].item() / v[1]
+
             elapsed_time = timers('interval time').elapsed()
             log_string = ' epoch{:2d} |'.format(epoch)
             log_string += ' iteration {:8d}/{:8d} |'.format(iteration,
@@ -267,16 +267,15 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             log_string += ' elapsed time per iteration (ms): {:.1f} |'.format(
                 elapsed_time * 1000.0 / args.log_interval)
             log_string += ' learning rate {:.3E} |'.format(learning_rate)
-            log_string += ' lm loss {:.3E} |'.format(avg_lm_loss)
-            log_string += ' nsp loss {:.3E} |'.format(avg_nsp_loss)
+            for mode, v in avg_loss.items():
+                log_string += ' {} loss {:.3E} |'.format(mode, v)
             print(log_string, flush=True)
-            total_nsp_loss = 0.0
-            total_lm_loss = 0.0
+            total_losses = {}
 
             experiment.set_step(iteration)
             metrics['learning_rate'] = learning_rate
-            metrics['lm_loss'] = avg_lm_loss
-            metrics['nsp_loss'] = avg_nsp_loss
+            for mode, v in avg_loss.items():
+                metrics[mode] = v
 
             experiment.log_metrics(metrics)
 
@@ -290,41 +289,51 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     return iteration, skipped_iters
 
 
-def evaluate(data_source, model, criterion, args):
+def evaluate(epoch, data_source, model, criterion, elapsed_time, args):
     """Evaluation."""
 
     # Turn on evaluation mode which disables dropout.
     model.eval()
 
-    total_lm_loss = 0
-    total_nsp_loss = 0
+    total_losses = {}
     max_iters = args.eval_iters
+    modes = args.modes.split(',')
 
     with torch.no_grad():
-        data_iterator = iter(data_source)
         iteration = 0
         while iteration < max_iters:
             # Forward evaluation.
-            lm_loss, nsp_loss = forward_step(next(data_iterator), model,
+            mode = modes[iteration % len(modes)]
+            data_source.dataset.set_args(mode)
+            loss = forward_step(next(data_source), model,
                                              criterion, args, -1)
             # Reduce across processes.
             if isinstance(model, DDP):
-                reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
+                # reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
+                reduced_losses = loss
                 torch.distributed.all_reduce(reduced_losses.data)
                 reduced_losses.data = reduced_losses.data/args.world_size
-                lm_loss = reduced_losses[0]
-                nsp_loss = reduced_losses[1]
+                loss = reduced_losses
 
-            total_lm_loss += lm_loss.data.detach().float().item()
-            total_nsp_loss += nsp_loss.data.detach().float().item()
-            iteration += 1
+            cum_loss, count = total_losses.get(mode, (0.0, 0.0))
+            total_losses[mode] = (cum_loss + loss.data.detach().float().item(), count + 1.0)
 
     # Move model back to the train mode.
     model.train()
 
-    total_lm_loss /= max_iters
-    total_nsp_loss /= max_iters
-    return total_lm_loss, total_nsp_loss
+    avg_loss = {}
+    for mode, v in total_losses.items():
+        avg_loss[mode] = v[0].item() / v[1]
+
+    val_loss = sum(avg_loss.values())
+    print('-' * 100)
+    log_string = '| end of epoch {:3d} | time: {:5.2f}s | valid loss {:.4E} | '.format(epoch, elapsed_time, val_loss)
+    for mode, v in avg_loss.items():
+        log_string += ' {} loss {:.3E} |'.format(mode, v)
+    print(log_string, flush=True)
+    print('-' * 100)
+
+    return val_loss
 
 
 def initialize_distributed(args):
@@ -407,6 +416,7 @@ def main():
             total_iters = args.total_iters
             train_data.batch_sampler.start_iter = total_iters % len(train_data)
         # For all epochs.
+        assert args.epoch <= len(args.modes.split(','))
         for epoch in range(start_epoch, args.epochs+1):
             if args.shuffle:
                 train_data.batch_sampler.sampler.set_epoch(epoch+args.seed)
@@ -417,13 +427,8 @@ def main():
             elapsed_time = timers('epoch time').elapsed()
             total_iters += iteration
             skipped_iters += skipped
-            lm_loss, nsp_loss = evaluate(val_data, model, criterion, args)
-            val_loss = lm_loss + nsp_loss
-            print('-' * 100)
-            print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:.4E} | '
-                  'valid LM Loss {:.4E} | valid NSP Loss {:.4E}'.format(
-                      epoch, elapsed_time, val_loss, lm_loss, nsp_loss))
-            print('-' * 100)
+            val_loss = evaluate(epoch, val_data, model, criterion, elapsed_time, args)
+
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 if args.save:

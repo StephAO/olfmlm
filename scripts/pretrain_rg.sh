@@ -28,4 +28,5 @@ python3 sentence_encoders/pretrain_bert.py \
     --bert-small-config-file /h/stephaneao/sentence-encoders/bert_small_config.json \
     --save /scratch/gobi1/stephaneao/trained_berts/referential_game/ \
     --model-type 'referential_game' \
+    --modes 'bert, rg' \
     --track-results True

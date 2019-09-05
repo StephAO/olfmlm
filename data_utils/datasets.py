@@ -467,6 +467,7 @@ class bert_dataset(data.Dataset):
         self.presplit_sentences = presplit_sentences
         self.corrupt_per_sentence = 0.05
         self.target_seq_length = self.max_seq_len
+        self.idx = 0
 
     def __len__(self):
         return self.dataset_size
@@ -497,9 +498,13 @@ class bert_dataset(data.Dataset):
             self.corruption_rate = 0.05
             self.task_id = 3
 
-    def __getitem__(self, idx):
+    def __iter__(self):
+        return self
+
+    def __next__(self):
         # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx)
+        rng = random.Random(self.idx)
+        self.idx += 1
         # get seq length
         target_seq_length = self.max_seq_len
         # get sentence pair and label
