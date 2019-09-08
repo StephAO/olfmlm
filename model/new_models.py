@@ -73,8 +73,10 @@ class Bert(PreTrainedBertModel):
     def forward(self, mode, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
                 next_sentence_label=None, checkpoint_activations=False):
         # assert len(input_ids) * len(token_type_ids) * len(attention_mask) == 1
-        sequence_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), torch.cat(token_type_ids, dim=0),
-                                                   torch.cat(task_ids, dim=0), torch.cat(attention_mask, dim=0),
+        token_type_ids = token_type_ids if token_type_ids is None else torch.cat(token_type_ids, dim=0)
+        task_ids = task_ids if task_ids is None else torch.cat(task_ids, dim=0)
+        att_mask = attention_mask if attention_mask is None else torch.cat(attention_mask, dim=0)
+        sequence_output, pooled_output = self.bert(torch.cat(input_ids, dim=0), token_type_ids, task_ids, att_mask,
                                                    output_all_encoded_layers=False,
                                                    checkpoint_activations=checkpoint_activations)
 

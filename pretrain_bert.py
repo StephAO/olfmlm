@@ -130,21 +130,21 @@ def get_batch(data):
     loss_mask = []
     lm_labels = []
     att_mask = []
-    for i in range(num_sentences):
+    for i in range(min(num_sentences)):
         suffix = "_" + str(i)
         tokens.append(torch.autograd.Variable(data['text' + suffix].long()).cuda())
         types.append(torch.autograd.Variable(data['types' + suffix].long()).cuda())
         tasks.append(torch.autograd.Variable(data['task' + suffix].long()).cuda())
         att_mask.append(1 - torch.autograd.Variable(data['pad_mask' + suffix].byte()).cuda())
-        lm_labels.append((data['mask_labels'] + suffix).long())
-        loss_mask.append((data['mask'] + suffix).float())
+        lm_labels.append((data['mask_labels' + suffix]).long())
+        loss_mask.append((data['mask' + suffix]).float())
 
     lm_labels = torch.autograd.Variable(torch.cat(lm_labels, dim=0).long()).cuda()
     loss_mask = torch.autograd.Variable(torch.cat(loss_mask, dim=0).float()).cuda()
 
     return (tokens, types, tasks, sentence_label, loss_mask, lm_labels, att_mask)
 
-def forward_step(data, model, criterion, args, iteration, mode):
+def forward_step(data, model, criterion, args, mode):
     """Forward step."""
     criterion_sentence = criterion
 
@@ -155,14 +155,14 @@ def forward_step(data, model, criterion, args, iteration, mode):
     if mode == "rg":
         sentence_label = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     # Forward model.
-    mlm_scores, sent_scores = model(tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
+    mlm_scores, sent_scores = model(mode, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
 
     if mode == "mlm":
         loss = criterion(mlm_scores.view(-1, args.data_size).contiguous().float(),
                              lm_labels.contiguous().view(-1).contiguous())
         loss_mask = loss_mask.contiguous()
         loss_mask = loss_mask.view(-1)
-        lm_loss = torch.sum(loss * loss_mask.view(-1).float()) / loss_mask.sum()
+        loss = torch.sum(loss * loss_mask.view(-1).float()) / loss_mask.sum()
     else: # nsp, corrupt, rg
         loss = criterion_sentence(sent_scores.contiguous().float(),
                                   sentence_label.view(-1).contiguous()).mean()
@@ -173,7 +173,6 @@ def backward_step(optimizer, model, loss, args):
     """Backward step."""
     # Backward pass.
     optimizer.zero_grad()
-
     # with amp.scale_loss(loss, optimizer) as scaled_loss:
     #     scaled_loss.backward()
     loss.backward()
@@ -195,20 +194,15 @@ def backward_step(optimizer, model, loss, args):
 
 def train_step(input_data, model, criterion, optimizer, lr_scheduler, args, mode):
     """Single training step."""
-
     # Forward model for one step.
     loss = forward_step(input_data, model, criterion, args, mode)
-
     # Calculate gradients, reduce across processes, and clip.
     loss_reduced = backward_step(optimizer, model, loss, args)
-
     # Update parameters.
     optimizer.step()
-
     # Update learning rate.
     skipped_iter = 0
     lr_scheduler.step()
-
     return loss_reduced, skipped_iter
 
 
@@ -231,15 +225,17 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     # Data iterator.
     modes = args.modes.split(',')
+    data_iters = {}
+    for m in modes[:epoch]:
+        train_data.dataset.set_args(m)
+        data_iters[m] = iter(train_data)
 
     timers('interval time').start()
     while iteration < max_iters:
-
         # TODO set mode
-        mode = modes[iteration % epoch]
-        train_data.dataset.set_args(mode)
+        mode = modes[iteration % min(len(modes), epoch)]
 
-        loss, skipped_iter = train_step(next(train_data),
+        loss, skipped_iter = train_step(next(data_iters[mode]),
                                         model,
                                         criterion,
                                         optimizer,
@@ -297,16 +293,19 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args):
 
     total_losses = {}
     max_iters = args.eval_iters
-    modes = args.modes.split(',')
-
+    modes = args.modes.split(',') 
+    data_iters = {}
+    for m in modes:
+        data_source.dataset.set_args(m)
+        data_iters[m] = iter(data_source)
+    
     with torch.no_grad():
         iteration = 0
         while iteration < max_iters:
             # Forward evaluation.
             mode = modes[iteration % len(modes)]
-            data_source.dataset.set_args(mode)
-            loss = forward_step(next(data_source), model,
-                                             criterion, args, -1)
+            loss = forward_step(next(data_iters[mode]), model,
+                                criterion, args, -1)
             # Reduce across processes.
             if isinstance(model, DDP):
                 # reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
@@ -317,6 +316,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args):
 
             cum_loss, count = total_losses.get(mode, (0.0, 0.0))
             total_losses[mode] = (cum_loss + loss.data.detach().float().item(), count + 1.0)
+            iteration += 1
 
     # Move model back to the train mode.
     model.train()
@@ -415,8 +415,7 @@ def main():
             start_epoch = args.epoch
             total_iters = args.total_iters
             train_data.batch_sampler.start_iter = total_iters % len(train_data)
-        # For all epochs.
-        assert args.epoch <= len(args.modes.split(','))
+        # For all epochs. 
         for epoch in range(start_epoch, args.epochs+1):
             if args.shuffle:
                 train_data.batch_sampler.sampler.set_epoch(epoch+args.seed)

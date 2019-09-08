@@ -467,7 +467,6 @@ class bert_dataset(data.Dataset):
         self.presplit_sentences = presplit_sentences
         self.corrupt_per_sentence = 0.05
         self.target_seq_length = self.max_seq_len
-        self.idx = 0
 
     def __len__(self):
         return self.dataset_size
@@ -476,7 +475,6 @@ class bert_dataset(data.Dataset):
         print("setting up args")
         self.mode = mode
         self.split_percent = 0.0
-        print(self.split_percent, type(self))
         self.corruption_rate = 0.0
         self.num_sent_per_seq = 1
         self.target_seq_length = self.max_seq_len
@@ -498,21 +496,14 @@ class bert_dataset(data.Dataset):
             self.corruption_rate = 0.05
             self.task_id = 3
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
+    def __getitem__(self, idx):
         # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(self.idx)
-        self.idx += 1
-        # get seq length
-        target_seq_length = self.max_seq_len
+        rng = random.Random(idx)
         # get sentence pair and label
         sentence_label = None
         tokens = []
-
         while (sentence_label is None) or any([len(x) < 1 for x in tokens]):
-            tokens, token_types, sentence_label, do_not_mask_ids = self.create_random_sentencepair(target_seq_length, rng)
+            tokens, token_types, sentence_label, do_not_mask_ids = self.create_random_sentencepair(rng)
         # truncate sentence pair to max_seq_len
         self.truncate_sequences(tokens, token_types, self.max_seq_len, rng)
         # join sentence pair, mask, and pad
@@ -529,7 +520,7 @@ class bert_dataset(data.Dataset):
                            'pad_mask_' + str(i): np.array(pad_mask[i])})
         return sample
 
-    def create_random_sentencepair(self, target_seq_length, rng):
+    def create_random_sentencepair(self, rng):
         """
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
@@ -543,12 +534,12 @@ class bert_dataset(data.Dataset):
             tokens = []
             token_types = []
             for i in range(self.num_sent_per_seq):
-                tok, tok_types = self.get_sentence(target_seq_length, rng, sentence_num=i)
+                tok, tok_types = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
                 tokens.append(tok)
-                token_types.append(token_types)
+                token_types.append(tok_types)
         else: # Contiguous sequence
-            tokens, token_types = self.get_sentence(target_seq_length * 2.5, rng, sentence_num=0,
-                                                    split=target_seq_length)
+            tokens, token_types = self.get_sentence(self.target_seq_length * 2.5, rng, sentence_num=0,
+                                                    split=self.target_seq_length)
 
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
@@ -563,14 +554,13 @@ class bert_dataset(data.Dataset):
         """tokenize sentence and get token types if tokens=True"""
         tokens = self.tokenizer.EncodeAsIds(sent).tokenization
         token_types = None
-        if self.use_types:
-            str_type = 'str' + str(sentence_num)
-            token_types = [self.tokenizer.get_type(str_type).Id]*len(tokens)
+        str_type = 'str' + str(sentence_num)
+        token_types = [self.tokenizer.get_type(str_type).Id]*len(tokens)
         return tokens, token_types
 
     def sentence_split(self, document, min_length):
         """split document into sentences"""
-        if len(document.split(" ")) < min_length:
+        if len(self.tokenizer.EncodeAsIds(document).tokenization) < min_length:
             return None
         lines = document.split('\n')
         if self.presplit_sentences:
@@ -602,7 +592,6 @@ class bert_dataset(data.Dataset):
             trunc_idx = np.argmax(lengths)
 
             assert len(tokens[trunc_idx]) >= 1
-
             if rng.random() < 0.5:
                 tokens[trunc_idx].pop(0)
                 token_types[trunc_idx].pop(0)
@@ -697,6 +686,7 @@ class bert_dataset(data.Dataset):
                     tokens = []
                     token_types = []
                     split_points = []
+                    doc = None
                     doc_idx = (doc_idx + 1) % self.ds_len
                     continue
 
@@ -753,10 +743,10 @@ class bert_dataset(data.Dataset):
                 while idx in do_not_mask_tokens:
                     idx = (idx + 1) % len(mask[i])
                 mask[i][idx] = 1
-                label = self.mask_token(idx, tokens[i], token_types[i], vocab_words, rng)
+                label = self.mask_token(idx, output_tokens[i], token_types[i], vocab_words, rng)
                 mask_labels[i][idx] = label
 
-            output = (output_tokens[i], token_types[i])
+            output[i] = (output_tokens[i], token_types[i])
 
         return output, mask, mask_labels, pad_mask
 

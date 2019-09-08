@@ -16,16 +16,16 @@ python3 sentence_encoders/pretrain_bert.py \
     --lazy-loader \
     --max-preds-per-seq 80 \
     --seq-length 128 \
-    --train-iters 100000 \
+    --train-iters 50000 \
     --lr 0.0001 \
     --lr-decay-style linear \
     --warmup .01 \
     --weight-decay 1e-2 \
     --clip-grad 1.0 \
     --num-workers 1 \
-    --epochs 1 \
+    --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
     --save /scratch/gobi1/stephaneao/trained_berts/bert/ \
     --model-type 'bert' \
     --modes 'mlm, nsp' \
-    --track-results False
+    --track-results True
