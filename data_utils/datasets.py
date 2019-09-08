@@ -471,28 +471,28 @@ class bert_dataset(data.Dataset):
     def __len__(self):
         return self.dataset_size
 
-    def set_args(self, mode):
+    def set_args(self, modes):
         print("setting up args")
-        self.mode = mode
+        self.modes = modes
         self.split_percent = 0.0
         self.corruption_rate = 0.0
         self.num_sent_per_seq = 1
         self.target_seq_length = self.max_seq_len
         self.concat = False
-        if self.mode == "mlm":
+        self.mask_lm_prob = 0.0
+        if "mlm" in self.modes:
+            self.mask_lm_prob = 0.15
+            self.task_id = 0
+        elif "nsp" in self.modes:
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / 2)
             self.concat = True
-            self.task_id = 0
-        elif self.mode == "nsp":
-            self.split_percent = 0.5
-            self.num_sent_per_seq = 2
             self.task_id = 1
-        elif self.mode == "rg":
+        elif "rg" in self.modes:
             self.num_sent_per_seq = 2
             self.task_id = 2
-        elif self.mode == "corrupt":
+        elif "corrupt" in self.modes:
             self.corruption_rate = 0.05
             self.task_id = 3
 

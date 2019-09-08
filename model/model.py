@@ -64,8 +64,8 @@ class BertModel(torch.nn.Module):
         #     model_args.append(self.small_config)
         self.model = Bert(*model_args)
 
-    def forward(self, mode, input_tokens, token_type_ids=None, task_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
-        return self.model(mode, input_tokens, token_type_ids, task_ids, attention_mask, checkpoint_activations=checkpoint_activations)
+    def forward(self, modes, input_tokens, token_type_ids=None, task_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
+        return self.model(modes, input_tokens, token_type_ids, task_ids, attention_mask, checkpoint_activations=checkpoint_activations)
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):
         return self.model.state_dict(destination=destination, prefix=prefix,

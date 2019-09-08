@@ -142,6 +142,12 @@ def add_training_args(parser):
     # training modes
     group.add_argument('--modes', default='bert',
                        help='comma separated list of training modes to use in order')
+    group.add_argument('--alternating', type=str2bool, nargs='?',
+                       const=True, default=False,
+                       help='If true, alternate between losses each iteration, if false sum all losses')
+    group.add_argument('--incremental', type=str2bool, nargs='?',
+                       const=True, default=False,
+                       help='If true, each epoch add a new loss. If false, all losses are enabled from the start.')
     return parser
 
 

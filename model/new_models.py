@@ -70,7 +70,7 @@ class Bert(PreTrainedBertModel):
         self.sent = BertOnlyNSPHead(config)
         self.apply(self.init_bert_weights)
 
-    def forward(self, mode, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
+    def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
                 next_sentence_label=None, checkpoint_activations=False):
         # assert len(input_ids) * len(token_type_ids) * len(attention_mask) == 1
         token_type_ids = token_type_ids if token_type_ids is None else torch.cat(token_type_ids, dim=0)
@@ -81,7 +81,7 @@ class Bert(PreTrainedBertModel):
                                                    checkpoint_activations=checkpoint_activations)
 
         lm_scores = self.lm(sequence_output)
-        if mode == "rg":
+        if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
             sent_scores = self.cosine_similarity(send_emb, recv_emb)

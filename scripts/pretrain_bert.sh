@@ -25,7 +25,9 @@ python3 sentence_encoders/pretrain_bert.py \
     --num-workers 1 \
     --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
-    --save /scratch/gobi1/stephaneao/trained_berts/bert/ \
+    --save /scratch/gobi2/stephaneao/trained_berts/bert/ \
     --model-type 'bert' \
     --modes 'mlm, nsp' \
+    --alternating False \
+    --incremental False \
     --track-results True
