@@ -22,12 +22,12 @@ python3 sentence_encoders/pretrain_bert.py \
     --warmup .01 \
     --weight-decay 1e-2 \
     --clip-grad 1.0 \
-    --num-workers 1 \
+    --num-workers 0 \
     --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
     --save /scratch/gobi2/stephaneao/trained_berts/bert_alt/ \
     --model-type 'bert_alt' \
-    --modes 'mlm, nsp' \
+    --modes 'mlm,nsp' \
     --alternating True \
     --incremental False \
     --track-results True

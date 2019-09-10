@@ -144,7 +144,7 @@ def get_batch(data):
 
     return (tokens, types, tasks, sentence_label, loss_mask, lm_labels, att_mask)
 
-def forward_step(data, model, criterion, args, modes):
+def forward_step(data, model, criterion, modes, args):
     """Forward step."""
     assert len(modes) <= 2
     losses = {}
@@ -207,7 +207,7 @@ def backward_step(optimizer, model, lm_loss, sent_loss, loss_mode, args):
 def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, loss_mode, args):
     """Single training step."""
     # Forward model for one step.
-    lm_loss, sent_loss = forward_step(input_data, model, criterion, args, modes)
+    lm_loss, sent_loss = forward_step(input_data, model, criterion, modes, args)
     # Calculate gradients, reduce across processes, and clip.
     lm_loss_reduced, sent_loss_reduced = backward_step(optimizer, model, lm_loss, sent_loss, loss_mode, args)
     # Update parameters.
@@ -242,8 +242,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         modes = modes[:epoch]
     if args.alternating:
         data_iters = {}
-        for m in modes[:epoch]:
-            train_data.dataset.set_args([m])
+        for m in modes:
+            train_data.dataset.set_args([m], epoch, max_iters)
             data_iters[m] = iter(train_data)
     else:
         train_data.dataset.set_args(modes)
@@ -293,7 +293,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             total_nsp_loss = 0.0
             total_lm_loss = 0.0
 
-            experiment.set_step(iteration)
+            experiment.set_step(iteration + (epoch - 1) * max_iters)
             metrics['learning_rate'] = learning_rate
             metrics['lm_loss'] = avg_lm_loss
             metrics['sent_loss'] = avg_nsp_loss
@@ -327,7 +327,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args):
         while iteration < max_iters:
             # Forward evaluation.
             lm_loss, nsp_loss = forward_step(next(data_iters), model,
-                                             criterion, modes, "sum", args)
+                                             criterion, modes, args)
             # Reduce across processes.
             if isinstance(model, DDP):
                 reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
@@ -350,7 +350,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args):
     print('-' * 100)
     print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:.4E} | '
           'valid LM Loss {:.4E} | valid NSP Loss {:.4E}'.format(
-        epoch, elapsed_time, val_loss, total_nsp_loss, total_nsp_loss))
+        epoch, elapsed_time, val_loss, total_lm_loss, total_nsp_loss))
     print('-' * 100)
 
     return val_loss
@@ -478,7 +478,7 @@ def main():
     if test_data is not None:
         # Run on test data.
         print('entering test')
-        lm_loss, nsp_loss = evaluate(test_data, model, criterion, args)
+        lm_loss, nsp_loss = evaluate(epoch, test_data, model, criterion, elapsed_time, args)
         test_loss = lm_loss + nsp_loss
         print('=' * 100)
         print('| End of training | test loss {:5.4f} | valid LM Loss {:.4E} |'

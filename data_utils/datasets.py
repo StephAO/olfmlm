@@ -467,13 +467,16 @@ class bert_dataset(data.Dataset):
         self.presplit_sentences = presplit_sentences
         self.corrupt_per_sentence = 0.05
         self.target_seq_length = self.max_seq_len
+        self.epoch = 0
 
     def __len__(self):
         return self.dataset_size
 
-    def set_args(self, modes):
-        print("setting up args")
+    def set_args(self, modes, epoch, num_iters):
+        print("setting up args, modes:", modes)
         self.modes = modes
+        self.epoch = epoch
+        self.num_iters = num_iters
         self.split_percent = 0.0
         self.corruption_rate = 0.0
         self.num_sent_per_seq = 1
@@ -483,22 +486,23 @@ class bert_dataset(data.Dataset):
         if "mlm" in self.modes:
             self.mask_lm_prob = 0.15
             self.task_id = 0
-        elif "nsp" in self.modes:
+            self.concat = True
+        if "nsp" in self.modes:
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / 2)
             self.concat = True
             self.task_id = 1
-        elif "rg" in self.modes:
+        if "rg" in self.modes:
             self.num_sent_per_seq = 2
             self.task_id = 2
-        elif "corrupt" in self.modes:
+        if "corrupt" in self.modes:
             self.corruption_rate = 0.05
             self.task_id = 3
 
     def __getitem__(self, idx):
         # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx)
+        rng = random.Random(idx + (self.epoch - 1) * self.num_iters)
         # get sentence pair and label
         sentence_label = None
         tokens = []
@@ -690,10 +694,10 @@ class bert_dataset(data.Dataset):
                     doc_idx = (doc_idx + 1) % self.ds_len
                     continue
 
-                tokens = (tokens[:first_split], tokens[first_split:second_split])
+                tokens = [tokens[:first_split], tokens[first_split:second_split]]
                 token_types_a = [self.tokenizer.get_type('str' + str(0)).Id]*len(tokens[0])
                 token_types_b = [self.tokenizer.get_type('str' + str(1)).Id]*len(tokens[1])
-                token_types = (token_types_a, token_types_b)
+                token_types = [token_types_a, token_types_b]
 
         return tokens, token_types
 
@@ -723,8 +727,7 @@ class bert_dataset(data.Dataset):
                 tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
                 token_types[i] = [token_types[i][0]] + token_types[i] + [token_types[i][0]]
                 token_types[i], _ = self.pad_seq(token_types[i])
-                cand_indices += [[idx + 1 for idx in range(tokens[i])]]
-
+                cand_indices += [[idx + 1 for idx in range(len(tokens[i]))]]
         output = [[] for _ in range(len(tokens))]
         output_tokens = [[] for _ in range(len(tokens))]
         mask = [[] for _ in range(len(tokens))]
