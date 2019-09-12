@@ -67,7 +67,7 @@ class Bert(PreTrainedBertModel):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.sent = {}
+        self.sent = torch.nn.ModuleDict()
         if "corrupt" in modes:
             self.sent["corrupt"] = BertOnlyNSPHead(config)
         if "nsp" in modes:
@@ -91,9 +91,9 @@ class Bert(PreTrainedBertModel):
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
             scores["rg"] = self.cosine_similarity(send_emb, recv_emb)
-        if "corrupt":
+        if "corrupt" in modes:
             scores["corrupt"] = self.sent["corrupt"](pooled_output)
-        if "nsp":
+        if "nsp" in modes:
             scores["nsp"] = self.sent["nsp"](pooled_output)
         return scores
 

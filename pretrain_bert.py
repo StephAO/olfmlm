@@ -158,7 +158,7 @@ def forward_step(data, model, criterion, modes, args):
         sentence_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     # Forward model.
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
-    assert scores.keys() == modes == sentence_labels.keys()
+    assert list(scores.keys()) == modes
 
     losses = {}
     for mode, score in scores.items():
@@ -181,12 +181,13 @@ def backward_step(optimizer, model, losses, args):
     optimizer.zero_grad()
     # with amp.scale_loss(loss, optimizer) as scaled_loss:
     #     scaled_loss.backward()
-    total_loss = torch.sum(losses.values())
+    total_loss = sum(losses.values())
     total_loss.backward()
 
     # Reduce across processes.
-    losses_reduced = [[k,v] for k,v in losses.items()]
+    losses_reduced = losses
     if args.world_size > 1:
+        losses_reduced = [[k,v] for k,v in losses_reduced.items()]
         reduced_losses = torch.cat([x[1].view(1) for x in losses_reduced])
         torch.distributed.all_reduce(reduced_losses.data)
         reduced_losses.data = reduced_losses.data / args.world_size
@@ -241,13 +242,19 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     timers('interval time').start()
     while iteration < max_iters:
         # TODO set mode
-        losses, skipped_iter = train_step(next(data_iters),
-                                                      model,
-                                                      criterion,
-                                                      optimizer,
-                                                      lr_scheduler,
-                                                      modes,
-                                                      args)
+        while True:
+            try:
+                losses, skipped_iter = train_step(next(data_iters),
+                                                  model,
+                                                  criterion,
+                                                  optimizer,
+                                                  lr_scheduler,
+                                                  modes,
+                                                  args)
+                break
+            except TypeError:
+                print("Ooops, continuing")
+
         skipped_iters += skipped_iter
         iteration += 1
 
