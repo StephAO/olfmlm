@@ -483,6 +483,7 @@ class bert_dataset(data.Dataset):
         self.target_seq_length = self.max_seq_len
         self.concat = False
         self.mask_lm_prob = 0.0
+        assert not ("nsp" in modes and "rg" in modes)
         if "mlm" in self.modes:
             self.mask_lm_prob = 0.15
             self.task_id = 0
@@ -504,10 +505,10 @@ class bert_dataset(data.Dataset):
         # get rng state corresponding to index (allows deterministic random pair)
         rng = random.Random(idx + (self.epoch - 1) * self.num_iters)
         # get sentence pair and label
-        sentence_label = None
+        task_labels = None
         tokens = []
-        while (sentence_label is None) or any([len(x) < 1 for x in tokens]):
-            tokens, token_types, sentence_label, do_not_mask_ids = self.create_random_sentencepair(rng)
+        while (task_labels is None) or any([len(x) < 1 for x in tokens]):
+            tokens, token_types, task_labels, do_not_mask_ids = self.create_random_sentencepair(rng)
         # truncate sentence pair to max_seq_len
         self.truncate_sequences(tokens, token_types, self.max_seq_len, rng)
         # join sentence pair, mask, and pad
@@ -515,7 +516,8 @@ class bert_dataset(data.Dataset):
                                                                                 self.max_preds_per_seq,
                                                                                 self.vocab_words, rng, self.concat,
                                                                                 do_not_mask_ids)
-        sample = {'sent_label': int(sentence_label), 'n': len(output)}
+        task_labels = {k: int(v) for k, v in task_labels.items()}
+        sample = {'task_labels': task_labels, 'n': len(output)}
         for i in range(len(output)):
             tokens, token_types = output[i]
             sample.update({'text_' + str(i): np.array(tokens), 'types_' + str(i): np.array(token_types),
@@ -529,12 +531,12 @@ class bert_dataset(data.Dataset):
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        sentence_label = False
+        sentence_labels = {}
         # either split or corrupt not both
         assert self.split_percent * self.corruption_rate == 0
         split = bool(rng.random() < self.split_percent)
         if split: # Split sequence
-            sentence_label = True
+            sentence_labels["nsp"] = True
             tokens = []
             token_types = []
             for i in range(self.num_sent_per_seq):
@@ -542,17 +544,20 @@ class bert_dataset(data.Dataset):
                 tokens.append(tok)
                 token_types.append(tok_types)
         else: # Contiguous sequence
+            sentence_labels["nsp"] = False
             tokens, token_types = self.get_sentence(self.target_seq_length * 2.5, rng, sentence_num=0,
                                                     split=self.target_seq_length)
 
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
         if corrupted:
-            sentence_label = True
+            sentence_labels["corrupt"] = True
             for i in range(len(tokens)):
                 ids.append(self.corrupt_seq(tokens[i], token_types[i], rng))
+        else:
+            sentence_labels["corrupt"] = False
 
-        return tokens, token_types, sentence_label, ids
+        return tokens, token_types, sentence_labels, ids
 
     def sentence_tokenize(self, sent, sentence_num=0, beginning=False, ending=False):
         """tokenize sentence and get token types if tokens=True"""
@@ -631,7 +636,7 @@ class bert_dataset(data.Dataset):
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
-    def get_sentence(self, target_seq_length, rng, sentence_num=0, split=False):
+    def get_sentence(self, target_seq_length, rng, sentence_num=0, split=0):
 
         tokens = []
         token_types = []

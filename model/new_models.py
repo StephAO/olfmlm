@@ -63,11 +63,15 @@ class Bert(PreTrainedBertModel):
     ```
     """
 
-    def __init__(self, config):
+    def __init__(self, config, modes=["mlm"]):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
-        self.sent = BertOnlyNSPHead(config)
+        self.sent = {}
+        if "corrupt" in modes:
+            self.sent["corrupt"] = BertOnlyNSPHead(config)
+        if "nsp" in modes:
+            self.sent["nsp"] = BertOnlyNSPHead(config)
         self.apply(self.init_bert_weights)
 
     def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
@@ -80,14 +84,18 @@ class Bert(PreTrainedBertModel):
                                                    output_all_encoded_layers=False,
                                                    checkpoint_activations=checkpoint_activations)
 
-        lm_scores = self.lm(sequence_output)
+        scores = {}
+        if "mlm" in modes:
+            scores["mlm"] = self.lm(sequence_output)
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
-            sent_scores = self.cosine_similarity(send_emb, recv_emb)
-        else:
-            sent_scores = self.sent(pooled_output)
-        return lm_scores, sent_scores
+            scores["rg"] = self.cosine_similarity(send_emb, recv_emb)
+        if "corrupt":
+            scores["corrupt"] = self.sent["corrupt"](pooled_output)
+        if "nsp":
+            scores["nsp"] = self.sent["nsp"](pooled_output)
+        return scores
 
     def cosine_similarity(self, a, b):
         "taken from https://stackoverflow.com/questions/50411191/how-to-compute-the-cosine-similarity-in-pytorch-for-all-rows-in-a-matrix-with-re"

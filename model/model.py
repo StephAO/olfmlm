@@ -62,7 +62,7 @@ class BertModel(torch.nn.Module):
         # if self.model_type == "referential_game":
         #     self.small_config = BertConfig(args.bert_small_config_file)
         #     model_args.append(self.small_config)
-        self.model = Bert(*model_args)
+        self.model = Bert(*model_args, modes=args.modes.split(','))
 
     def forward(self, modes, input_tokens, token_type_ids=None, task_ids=None, attention_mask=None, checkpoint_activations=False, first_pass=False):
         return self.model(modes, input_tokens, token_type_ids, task_ids, attention_mask, checkpoint_activations=checkpoint_activations)
@@ -79,7 +79,8 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.encoder.layer))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
-        param_groups += list(get_params_for_weight_decay_optimization(self.model.sent.seq_relationship))
+        for classifier in self.model.sent.values():
+            param_groups += list(get_params_for_weight_decay_optimization(classifier.seq_relationship))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
         param_groups[1]['params'].append(self.model.lm.predictions.bias)
 
