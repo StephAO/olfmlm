@@ -118,7 +118,7 @@ class Bert(PreTrainedBertModel):
         if "sd" in modes:
             scores["sd"] = self.sent["sd"](pooled_output)
         if "so" in modes:
-            scores["sd"] = self.sent["sd"](pooled_output)
+            scores["so"] = self.sent["so"](pooled_output)
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]

@@ -170,7 +170,7 @@ def forward_step(data, model, criterion, modes, args):
             losses["mlm"] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
         else:
             # TODO do I need separate criterion sentences?
-            losses["mode"] = criterion_sentence(score.contiguous().float(),
+            losses[mode] = criterion_sentence(score.contiguous().float(),
                                                 sentence_labels[mode].view(-1).contiguous()).mean()
     return losses
 
@@ -242,18 +242,18 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     timers('interval time').start()
     while iteration < max_iters:
         # TODO set mode
-        while True:
-            try:
-                losses, skipped_iter = train_step(next(data_iters),
-                                                  model,
-                                                  criterion,
-                                                  optimizer,
-                                                  lr_scheduler,
-                                                  modes,
-                                                  args)
-                break
-            except TypeError:
-                print("Ooops, continuing")
+        #while True:
+        #try:
+        losses, skipped_iter = train_step(next(data_iters),
+                                          model,
+                                          criterion,
+                                          optimizer,
+                                          lr_scheduler,
+                                          modes,
+                                          args)
+        #    break
+        #except TypeError:
+        #    print("Ooops, continuing")
 
         skipped_iters += skipped_iter
         iteration += 1
@@ -324,8 +324,8 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
                 model.allreduce_params(reduce_after=False,
                                        fp32_allreduce=False)  # args.fp32_allreduce)
                 losses = {losses_reduced[i][0]: reduced_losses[i] for i in range(len(losses_reduced))}
-
-            assert losses.keys() == modes
+            
+            assert list(losses.keys()) == modes
             for mode, loss in losses.items():
                 total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float().item()
             iteration += 1

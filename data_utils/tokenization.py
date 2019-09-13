@@ -715,6 +715,7 @@ class BertWordPieceTokenizer(Tokenizer):
         self.type_tokens = [
             TypeToken('str0', '<str0>', 0),
             TypeToken('str1', '<str1>', 1),
+            TypeToken('str2', '<str2>', 2),
         ]
         self.type_name_map = {tok.name: tok for tok in self.type_tokens}
         self.type_token_map = {tok.token: tok for tok in self.type_tokens}
