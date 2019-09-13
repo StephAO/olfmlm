@@ -90,6 +90,8 @@ def add_training_args(parser):
                        help='report interval')
     group.add_argument('--train-iters', type=int, default=1000000,
                        help='number of iterations per epoch')
+    group.add_argument('--train-tokens', type=int, default=1000,
+                       help='number of iterations per epoch')
     group.add_argument('--seed', type=int, default=1234,
                        help='random seed')
     # Learning rate.

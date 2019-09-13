@@ -3,14 +3,33 @@ import torch
 from torch.nn import CrossEntropyLoss
 from sentence_encoders.model.modeling import *
 
-class BertNSPHead(nn.Module):
+class BertSentHead(nn.Module):
     def __init__(self, config, num_classes=2):
-        super(BertNSPHead, self).__init__()
+        super(BertSentHead, self).__init__()
         self.seq_relationship = nn.Linear(config.hidden_size, num_classes)
 
     def forward(self, pooled_output):
         seq_relationship_score = self.seq_relationship(pooled_output)
         return seq_relationship_score
+
+
+class BertTokenHead(nn.Module):
+    def __init__(self, config, num_classes=2):
+        super(BertTokenHead, self).__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.transform_act_fn = ACT2FN[config.hidden_act] \
+            if isinstance(config.hidden_act, str) else config.hidden_act
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layernorm_epsilon)
+
+        self.decoder = nn.Linear(config.hidden_size, num_classes)
+
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.transform_act_fn(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states)
+        predictions = self.decoder(hidden_states)
+        return predictions
+
 
 class Bert(PreTrainedBertModel):
     """BERT model with pre-training heads.
@@ -68,10 +87,17 @@ class Bert(PreTrainedBertModel):
         self.bert = BertModel(config)
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.sent = torch.nn.ModuleDict()
-        if "corrupt" in modes:
-            self.sent["corrupt"] = BertOnlyNSPHead(config)
+        self.tok = torch.nn.ModuleDict()
+        if "corrupt_sent" in modes:
+            self.sent["corrupt_sent"] = BertSentHead(config, num_classes=2)
         if "nsp" in modes:
-            self.sent["nsp"] = BertOnlyNSPHead(config)
+            self.sent["nsp"] = BertSentHead(config, num_classes=2)
+        if "sd" in modes:
+            self.sent["sd"] = BertSentHead(config, num_classes=3)
+        if "so" in modes:
+            self.sent["so"] = BertSentHead(config, num_classes=6)
+        if "corrupt_tok" in modes:
+            self.tok["corrupt_tok"] = BertTokenHead(config, num_classes=2)
         self.apply(self.init_bert_weights)
 
     def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
@@ -87,14 +113,20 @@ class Bert(PreTrainedBertModel):
         scores = {}
         if "mlm" in modes:
             scores["mlm"] = self.lm(sequence_output)
+        if "nsp" in modes:
+            scores["nsp"] = self.sent["nsp"](pooled_output)
+        if "sd" in modes:
+            scores["sd"] = self.sent["sd"](pooled_output)
+        if "so" in modes:
+            scores["sd"] = self.sent["sd"](pooled_output)
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
             scores["rg"] = self.cosine_similarity(send_emb, recv_emb)
-        if "corrupt" in modes:
-            scores["corrupt"] = self.sent["corrupt"](pooled_output)
-        if "nsp" in modes:
-            scores["nsp"] = self.sent["nsp"](pooled_output)
+        if "corrupt_sent" in modes:
+            scores["corrupt_sent"] = self.sent["corrupt_sent"](pooled_output)
+        if "corrupt_tok" in modes:
+            scores["corrupt_tok"] = self.tok["corrupt_tok"](sequence_output)
         return scores
 
     def cosine_similarity(self, a, b):

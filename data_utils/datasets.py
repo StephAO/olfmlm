@@ -437,6 +437,14 @@ class json_dataset(data.Dataset):
                 j[self.label_key] = -1
             yield j
 
+def nested_list_len(x):
+    l = 0
+    if isinstance(x[0], list):
+        for i in x:
+            l += nested_list_len(i)
+    else:
+        l = len(x)
+    return l
 
 class bert_dataset(data.Dataset):
     """
@@ -468,38 +476,59 @@ class bert_dataset(data.Dataset):
         self.corrupt_per_sentence = 0.05
         self.target_seq_length = self.max_seq_len
         self.epoch = 0
+        self.permutations = {0: [0,1,2], 1: [1,2,0], 2: [2,0,1], 3: [1,0,2], 4: [0,2,1], 5: [2,1,0]}
+        self.num_tokens_seen = 0
 
     def __len__(self):
         return self.dataset_size
 
-    def set_args(self, modes, epoch, num_iters):
+    def set_args(self, modes, epoch, num_iters):#, max_tokens):
+        # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
         self.modes = modes
         self.epoch = epoch
         self.num_iters = num_iters
+        # self.max_tokens = max_tokens
         self.split_percent = 0.0
         self.corruption_rate = 0.0
         self.num_sent_per_seq = 1
         self.target_seq_length = self.max_seq_len
         self.concat = False
         self.mask_lm_prob = 0.0
-        assert not ("nsp" in modes and "rg" in modes)
-        if "mlm" in self.modes:
+        self.shuffle = False
+        # Assert that at most 1 sentence distance loss exists
+        self.sentence_distances = ["nsp", "rg", "sd", "so"]
+        assert [x in self.sentence_distances for x in self.modes].count(True) <= 1
+        if "mlm" in self.modes: # Masked Language Data
             self.mask_lm_prob = 0.15
             self.task_id = 0
             self.concat = True
-        if "nsp" in self.modes:
+        if "nsp" in self.modes: # Next Sentence Prediction Data
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / 2)
             self.concat = True
             self.task_id = 1
-        if "rg" in self.modes:
+        if "sd" in self.modes: # Sentence Distance Data
+            self.split_percent = 1. / 3.
             self.num_sent_per_seq = 2
-            self.task_id = 2
-        if "corrupt" in self.modes:
+            self.target_seq_length = int(self.max_seq_len / 2)
+            self.concat = True
+            self.task_id = 1
+            self.shuffle = True
+        if "so" in self.modes: # Sentence Re-ordering Data
+            self.split_percent = 0.0
+            self.num_sent_per_seq = 3
+            self.target_seq_length = int(self.max_seq_len / 3)
+            self.concat = True
+            self.task_id = 1
+            self.shuffle = False
+        if "rg" in self.modes: # Referential Game Data
+            self.num_sent_per_seq = 2
+            self.task_id = 1
+        if "corrupt_sent" in self.modes or "corrupt_tok" in self.modes: # Corrupt Data
             self.corruption_rate = 0.05
-            self.task_id = 3
+            self.task_id = 2
 
     def __getitem__(self, idx):
         # get rng state corresponding to index (allows deterministic random pair)
@@ -508,16 +537,17 @@ class bert_dataset(data.Dataset):
         task_labels = None
         tokens = []
         while (task_labels is None) or any([len(x) < 1 for x in tokens]):
-            tokens, token_types, task_labels, do_not_mask_ids = self.create_random_sentencepair(rng)
+            tokens, token_types, task_labels, corrupted_ids = self.create_random_sentencepair(rng)
         # truncate sentence pair to max_seq_len
         self.truncate_sequences(tokens, token_types, self.max_seq_len, rng)
         # join sentence pair, mask, and pad
         output, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(tokens, token_types, self.mask_lm_prob,
                                                                                 self.max_preds_per_seq,
                                                                                 self.vocab_words, rng, self.concat,
-                                                                                do_not_mask_ids)
+                                                                                do_not_mask_tokens=corrupted_ids)
+        self.num_tokens_seen += nested_list_len(tokens)
         task_labels = {k: int(v) for k, v in task_labels.items()}
-        sample = {'task_labels': task_labels, 'n': len(output)}
+        sample = {'task_labels': task_labels, 'n': len(output)}#, 'done': bool(self.num_tokens_seen > self.max_tokens)}
         for i in range(len(output)):
             tokens, token_types = output[i]
             sample.update({'text_' + str(i): np.array(tokens), 'types_' + str(i): np.array(token_types),
@@ -534,35 +564,50 @@ class bert_dataset(data.Dataset):
         sentence_labels = {}
         # either split or corrupt not both
         assert self.split_percent * self.corruption_rate == 0
-        split = bool(rng.random() < self.split_percent)
-        if split: # Split sequence
+        split = rng.random()
+        if split < self.split_percent: # Split sequence
             sentence_labels["nsp"] = True
+            sentence_labels["sd"] = 0
             tokens = []
-            token_types = []
             for i in range(self.num_sent_per_seq):
                 tok, tok_types = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
                 tokens.append(tok)
-                token_types.append(tok_types)
-        else: # Contiguous sequence
+            if self.shuffle:
+                rng.shuffle(tokens)
+            token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
+        elif split < self.split_percent * 2: # Contiguous sequence
             sentence_labels["nsp"] = False
-            tokens, token_types = self.get_sentence(self.target_seq_length * 2.5, rng, sentence_num=0,
-                                                    split=self.target_seq_length)
+            sentence_labels["sd"] = 1
+            tokens, token_types = self.get_sentence(self.target_seq_length * 2.5, rng,
+                                                    splits=[self.target_seq_length, self.target_seq_length],
+                                                    shuffle=self.shuffle)
+        else: # Same document, non-contiguous
+            sentence_labels["sd"] = 2
+            splits = [self.target_seq_length for _ in range(self.num_sent_per_seq)]
+            tokens, token_types = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + 0.5),
+                                                    rng, splits=splits,
+                                                    non_contiguous=True, shuffle=self.shuffle)
+            if "so" in self.modes:
+                sentence_labels["so"] = rng.randint(0, 6)
+                x = self.permutations[sentence_labels["so"]]
+                tokens = [tokens[x[0]], tokens[x[1]], tokens[x[2]]]
+                token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in
+                               range(len(tokens))]
 
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
         if corrupted:
-            sentence_labels["corrupt"] = True
+            sentence_labels["corrupt_sent"] = True
             for i in range(len(tokens)):
                 ids.append(self.corrupt_seq(tokens[i], token_types[i], rng))
         else:
-            sentence_labels["corrupt"] = False
+            sentence_labels["corrupt_sent"] = False
 
         return tokens, token_types, sentence_labels, ids
 
     def sentence_tokenize(self, sent, sentence_num=0, beginning=False, ending=False):
         """tokenize sentence and get token types if tokens=True"""
         tokens = self.tokenizer.EncodeAsIds(sent).tokenization
-        token_types = None
         str_type = 'str' + str(sentence_num)
         token_types = [self.tokenizer.get_type(str_type).Id]*len(tokens)
         return tokens, token_types
@@ -621,7 +666,6 @@ class bert_dataset(data.Dataset):
                 new_label = label
             else:
                 new_label = rng.choice(vocab_words)
-
         tokens[idx] = new_label
 
         return label
@@ -636,8 +680,7 @@ class bert_dataset(data.Dataset):
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
-    def get_sentence(self, target_seq_length, rng, sentence_num=0, split=0):
-
+    def get_sentence(self, target_seq_length, rng, sentence_num=0, splits=None, non_contiguous=False, shuffle=False):
         tokens = []
         token_types = []
         split_points = []
@@ -654,7 +697,7 @@ class bert_dataset(data.Dataset):
             end_idx = rng.randint(0, len(doc) - 1)
             start_idx = end_idx - 1
             while len(tokens) < target_seq_length:
-                if split and len(tokens) > 0:
+                if splits and len(tokens) > 0:
                     split_points += [len(tokens)]
                 if end_idx < len(doc):
                     sentence = doc[end_idx]
@@ -677,21 +720,29 @@ class bert_dataset(data.Dataset):
                 else:
                     break
 
-            if split:
-                first_split = -1
-                second_split = -1
-                for i in range(len(split_points)):
-                    if i + 1 >= len(split_points):
-                        break
-                    if first_split == -1 and split_points[i + 1] > split:
-                        first_split = split_points[i]
-                    elif first_split != -1 and split_points[i + 1] - first_split > split:
-                        second_split = split_points[i]
-                        break
+            if splits:
+                if non_contiguous:
+                    max_len = len(tokens) - sum(splits)
+                    per_split = int(max_len / (len(splits) - 1))
+                    for i in range(1, len(splits) * 2 - 1, 2):
+                        splits.insert(i, rng.randint(1, per_split))
+                split_idxs = [0 for _ in range(len(splits) + 2)]
+                idx = 1
+                for i in range(len(split_points) - 1):
+                    if split_points[i + 1] - split_idxs[idx - 1] > splits[idx - 1]:
+                        split_idxs[idx] = split_points[i]
+                        idx += 1
+                        if idx == len(splits) + 2:
+                            break
 
+                tokens = [tokens[split_idxs[i - 1]: split_idxs[i]] for i in range(1, len(split_idxs))]
+                if non_contiguous:
+                    tokens = tokens[::2]
+                if shuffle:
+                    rng.shuffle(tokens)
                 # Not able to split document in a way that works for training, try a different doc
-                if -1 in [first_split, second_split] or \
-                                        len(tokens[:first_split]) * len(tokens[first_split:second_split]) == 0:
+                # Can't split if either there were not enough split points or one of the splits is of length 0
+                if np.prod(split_idxs[1:]) * np.prod([len(t) for t in tokens]) == 0:
                     tokens = []
                     token_types = []
                     split_points = []
@@ -699,10 +750,7 @@ class bert_dataset(data.Dataset):
                     doc_idx = (doc_idx + 1) % self.ds_len
                     continue
 
-                tokens = [tokens[:first_split], tokens[first_split:second_split]]
-                token_types_a = [self.tokenizer.get_type('str' + str(0)).Id]*len(tokens[0])
-                token_types_b = [self.tokenizer.get_type('str' + str(1)).Id]*len(tokens[1])
-                token_types = [token_types_a, token_types_b]
+                token_types = [[self.tokenizer.get_type('str' + str(i)).Id]*len(tokens[i]) for i in range(len(tokens))]
 
         return tokens, token_types
 
