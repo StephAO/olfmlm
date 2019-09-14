@@ -28,6 +28,5 @@ python3 sentence_encoders/pretrain_bert.py \
     --save /scratch/gobi2/stephaneao/trained_berts/bert_inc/ \
     --model-type 'bert_inc' \
     --modes 'mlm,nsp' \
-    --alternating False \
     --incremental True \
     --track-results True

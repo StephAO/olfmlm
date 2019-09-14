@@ -123,8 +123,8 @@ def get_batch(data):
     sentence_labels = {}
     for mode, label in data['task_labels'].items():
         sentence_labels[mode] = torch.autograd.Variable(label.long()).cuda()
-    # Optional data
     num_sentences = data['n']
+    done = data['done']
     tokens = []
     types = []
     tasks = []
@@ -143,7 +143,7 @@ def get_batch(data):
     lm_labels = torch.autograd.Variable(torch.cat(lm_labels, dim=0).long()).cuda()
     loss_mask = torch.autograd.Variable(torch.cat(loss_mask, dim=0).float()).cuda()
 
-    return (tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask)
+    return (tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask, done)
 
 
 def forward_step(data, model, criterion, modes, args):
@@ -153,7 +153,7 @@ def forward_step(data, model, criterion, modes, args):
     # Get the batch.
     batch = get_batch(data)
 
-    tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask = batch
+    tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask, done = batch
     if "rg" in modes:
         sentence_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     # Forward model.
@@ -172,7 +172,7 @@ def forward_step(data, model, criterion, modes, args):
             # TODO do I need separate criterion sentences?
             losses[mode] = criterion_sentence(score.contiguous().float(),
                                                 sentence_labels[mode].view(-1).contiguous()).mean()
-    return losses
+    return losses, done
 
 
 def backward_step(optimizer, model, losses, args):
@@ -204,7 +204,7 @@ def backward_step(optimizer, model, losses, args):
 def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, args):
     """Single training step."""
     # Forward model for one step.
-    losses = forward_step(input_data, model, criterion, modes, args)
+    losses, done = forward_step(input_data, model, criterion, modes, args)
     # Calculate gradients, reduce across processes, and clip.
     losses_reduced = backward_step(optimizer, model, losses, args)
     # Update parameters.
@@ -212,7 +212,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     # Update learning rate.
     skipped_iter = 0
     lr_scheduler.step()
-    return losses_reduced, skipped_iter
+    return losses_reduced, skipped_iter, done
 
 
 def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args):
@@ -236,24 +236,24 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     modes = args.modes.split(',')
     if args.incremental:
         modes = modes[:epoch]
-    train_data.dataset.set_args(modes, epoch, args.train_iters)
+    train_data.dataset.set_args(modes, epoch, args.train_iters, 400000000)
     data_iters = iter(train_data)
 
     timers('interval time').start()
     while iteration < max_iters:
         # TODO set mode
-        #while True:
-        #try:
-        losses, skipped_iter = train_step(next(data_iters),
-                                          model,
-                                          criterion,
-                                          optimizer,
-                                          lr_scheduler,
-                                          modes,
-                                          args)
-        #    break
-        #except TypeError:
-        #    print("Ooops, continuing")
+        while True:
+            try:
+                losses, skipped_iter, done = train_step(next(data_iters),
+                                                        model,
+                                                        criterion,
+                                                        optimizer,
+                                                        lr_scheduler,
+                                                        modes,
+                                                        args)
+                break
+            except TypeError:
+                print("Ooops, continuing")
 
         skipped_iters += skipped_iter
         iteration += 1
@@ -295,6 +295,9 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             save_checkpoint(model_suffix, epoch, iteration, model, optimizer,
                             lr_scheduler, args)
 
+        if done:
+            break
+
     return iteration, skipped_iters
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
@@ -306,7 +309,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     total_losses = {}
     max_iters = args.eval_iters
     modes = args.modes.split(',')
-    data_source.dataset.set_args(modes, epoch, args.eval_iters)
+    data_source.dataset.set_args(modes, epoch, args.eval_iters, 6400000)
     data_iters = iter(data_source)
 
     with torch.no_grad():

@@ -482,13 +482,13 @@ class bert_dataset(data.Dataset):
     def __len__(self):
         return self.dataset_size
 
-    def set_args(self, modes, epoch, num_iters):#, max_tokens):
+    def set_args(self, modes, epoch, num_iters, max_tokens):
         # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
         self.modes = modes
         self.epoch = epoch
         self.num_iters = num_iters
-        # self.max_tokens = max_tokens
+        self.max_tokens = max_tokens
         self.split_percent = 0.0
         self.corruption_rate = 0.0
         self.num_sent_per_seq = 1
@@ -531,6 +531,7 @@ class bert_dataset(data.Dataset):
             self.task_id = 2
 
     def __getitem__(self, idx):
+        # TODO keep track of known documents that are too short
         # get rng state corresponding to index (allows deterministic random pair)
         rng = random.Random(idx + (self.epoch - 1) * self.num_iters)
         # get sentence pair and label
@@ -546,8 +547,12 @@ class bert_dataset(data.Dataset):
                                                                                 self.vocab_words, rng, self.concat,
                                                                                 do_not_mask_tokens=corrupted_ids)
         self.num_tokens_seen += nested_list_len(tokens)
+        done = False
+        if self.num_tokens_seen > self.max_tokens:
+            print("I have learnt over {} tokens. Ending my training".format(self.num_tokens_seen))
+            done = True
         task_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in task_labels.items()}
-        sample = {'task_labels': task_labels, 'n': len(output)}#, 'done': bool(self.num_tokens_seen > self.max_tokens)}
+        sample = {'task_labels': task_labels, 'n': len(output),'done': done}
         for i in range(len(output)):
             tokens, token_types = output[i]
             sample.update({'text_' + str(i): np.array(tokens), 'types_' + str(i): np.array(token_types),
