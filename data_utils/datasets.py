@@ -482,13 +482,12 @@ class bert_dataset(data.Dataset):
     def __len__(self):
         return self.dataset_size
 
-    def set_args(self, modes, epoch, num_iters, max_tokens):
+    def set_args(self, modes, epoch, num_iters):
         # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
         self.modes = modes
         self.epoch = epoch
         self.num_iters = num_iters
-        self.max_tokens = max_tokens
         self.split_percent = 0.0
         self.corruption_rate = 0.0
         self.num_sent_per_seq = 1
@@ -537,28 +536,29 @@ class bert_dataset(data.Dataset):
         # get sentence pair and label
         task_labels = None
         tokens = []
+        print("a", flush=True, end="-")
         while (task_labels is None) or any([len(x) < 1 for x in tokens]):
             tokens, token_types, task_labels, corrupted_ids = self.create_random_sentencepair(rng)
         # truncate sentence pair to max_seq_len
+        print("b", flush=True, end="-")
         self.truncate_sequences(tokens, token_types, self.max_seq_len, rng)
         # join sentence pair, mask, and pad
+        print("c", flush=True, end="-")
         output, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(tokens, token_types, self.mask_lm_prob,
                                                                                 self.max_preds_per_seq,
                                                                                 self.vocab_words, rng, self.concat,
                                                                                 do_not_mask_tokens=corrupted_ids)
-        self.num_tokens_seen += nested_list_len(tokens)
-        done = False
-        if self.num_tokens_seen > self.max_tokens:
-            print("I have learnt over {} tokens. Ending my training".format(self.num_tokens_seen))
-            done = True
+        num_tokens = nested_list_len(tokens)
         task_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in task_labels.items()}
-        sample = {'task_labels': task_labels, 'n': len(output),'done': done}
+        sample = {'task_labels': task_labels, 'n': len(output),'num_tokens': num_tokens}
         for i in range(len(output)):
             tokens, token_types = output[i]
             sample.update({'text_' + str(i): np.array(tokens), 'types_' + str(i): np.array(token_types),
                            'task_' + str(i): np.full_like(tokens, self.task_id),
                            'mask_' + str(i): np.array(mask[i]), 'mask_labels_' + str(i): np.array(mask_labels[i]),
                            'pad_mask_' + str(i): np.array(pad_mask[i])})
+        
+        print("d", flush=True, end="-")
         return sample
 
     def create_random_sentencepair(self, rng):
@@ -571,8 +571,10 @@ class bert_dataset(data.Dataset):
         assert self.split_percent * self.corruption_rate == 0
         split = rng.random()
         if split < self.split_percent: # Split sequence
-            sentence_labels["nsp"] = True
-            sentence_labels["sd"] = 0
+            if "nsp" in self.modes:
+                sentence_labels["nsp"] = True
+            if "sd" in self.modes:
+                sentence_labels["sd"] = 0
             tokens = []
             for i in range(self.num_sent_per_seq):
                 tok, tok_types = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
@@ -581,8 +583,10 @@ class bert_dataset(data.Dataset):
                 rng.shuffle(tokens)
             token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
         elif split < self.split_percent * 2: # Contiguous sequence
-            sentence_labels["nsp"] = False
-            sentence_labels["sd"] = 1
+            if "nsp" in self.modes:
+                sentence_labels["nsp"] = False
+            if "sd" in self.modes:
+                sentence_labels["sd"] = 1
             tokens, token_types = self.get_sentence(self.target_seq_length * 2.5, rng,
                                                     splits=[self.target_seq_length, self.target_seq_length],
                                                     shuffle=self.shuffle)

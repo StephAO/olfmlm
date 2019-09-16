@@ -22,7 +22,7 @@
 # export JIANT_DATA_DIR=/Users/Bowman/Drive/JSALT/jiant/glue_data
 
 # The base directory for model output.
-export JIANT_PROJECT_PREFIX=/scratch/gobi1/stephaneao/finetuned_berts
+export JIANT_PROJECT_PREFIX=/scratch/gobi2/stephaneao/finetuned_berts
 
 # Base directory in which to look for raw data subdirectories. This
 # could be the glue_data directory created by download_glue_data.py.

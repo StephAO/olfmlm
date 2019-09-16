@@ -124,7 +124,7 @@ def get_batch(data):
     for mode, label in data['task_labels'].items():
         sentence_labels[mode] = torch.autograd.Variable(label.long()).cuda()
     num_sentences = data['n']
-    done = data['done']
+    num_tokens = sum(data['num_tokens']).item()
     tokens = []
     types = []
     tasks = []
@@ -143,7 +143,7 @@ def get_batch(data):
     lm_labels = torch.autograd.Variable(torch.cat(lm_labels, dim=0).long()).cuda()
     loss_mask = torch.autograd.Variable(torch.cat(loss_mask, dim=0).float()).cuda()
 
-    return (tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask, done)
+    return (tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask, num_tokens)
 
 
 def forward_step(data, model, criterion, modes, args):
@@ -153,7 +153,7 @@ def forward_step(data, model, criterion, modes, args):
     # Get the batch.
     batch = get_batch(data)
 
-    tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask, done = batch
+    tokens, types, tasks, sentence_labels, loss_mask, lm_labels, att_mask, num_tokens = batch
     if "rg" in modes:
         sentence_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     # Forward model.
@@ -172,7 +172,7 @@ def forward_step(data, model, criterion, modes, args):
             # TODO do I need separate criterion sentences?
             losses[mode] = criterion_sentence(score.contiguous().float(),
                                                 sentence_labels[mode].view(-1).contiguous()).mean()
-    return losses, done
+    return losses, num_tokens
 
 
 def backward_step(optimizer, model, losses, args):
@@ -204,7 +204,7 @@ def backward_step(optimizer, model, losses, args):
 def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, args):
     """Single training step."""
     # Forward model for one step.
-    losses, done = forward_step(input_data, model, criterion, modes, args)
+    losses, num_tokens = forward_step(input_data, model, criterion, modes, args)
     # Calculate gradients, reduce across processes, and clip.
     losses_reduced = backward_step(optimizer, model, losses, args)
     # Update parameters.
@@ -212,10 +212,10 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     # Update learning rate.
     skipped_iter = 0
     lr_scheduler.step()
-    return losses_reduced, skipped_iter, done
+    return losses_reduced, skipped_iter, num_tokens
 
 
-def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args):
+def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, tokens_seen, args):
     """Train one full epoch."""
 
     # Turn on training mode which enables dropout.
@@ -236,25 +236,28 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     modes = args.modes.split(',')
     if args.incremental:
         modes = modes[:epoch]
-    train_data.dataset.set_args(modes, epoch, args.train_iters, 400000000)
+    train_data.dataset.set_args(modes, epoch, args.train_iters)
     data_iters = iter(train_data)
+    tot_num_tokens = tokens_seen
 
     timers('interval time').start()
     while iteration < max_iters:
         # TODO set mode
+        print(iteration, flush=True)
         while True:
             try:
-                losses, skipped_iter, done = train_step(next(data_iters),
-                                                        model,
-                                                        criterion,
-                                                        optimizer,
-                                                        lr_scheduler,
-                                                        modes,
-                                                        args)
+                losses, skipped_iter, num_tokens = train_step(next(data_iters),
+                                                              model,
+                                                              criterion,
+                                                              optimizer,
+                                                              lr_scheduler,
+                                                              modes,
+                                                              args)
                 break
             except TypeError:
                 print("Ooops, continuing")
 
+        tot_num_tokens += num_tokens
         skipped_iters += skipped_iter
         iteration += 1
 
@@ -295,10 +298,11 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             save_checkpoint(model_suffix, epoch, iteration, model, optimizer,
                             lr_scheduler, args)
 
-        if done:
+        if tot_num_tokens >= 300000000:
+            print("I have learnt over {} tokens. Ending my training".format(tot_num_tokens))
             break
 
-    return iteration, skipped_iters
+    return iteration, skipped_iters, tot_num_tokens
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
     """Evaluation."""
@@ -309,14 +313,23 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     total_losses = {}
     max_iters = args.eval_iters
     modes = args.modes.split(',')
-    data_source.dataset.set_args(modes, epoch, args.eval_iters, 6400000)
+    data_source.dataset.set_args(modes, epoch, args.eval_iters)
     data_iters = iter(data_source)
+    tot_num_tokens = 0
 
     with torch.no_grad():
         iteration = 0
         while iteration < max_iters:
             # Forward evaluation.
-            losses = forward_step(next(data_iters), model, criterion, modes, args)
+            
+            while True:
+                try:
+                    losses, num_tokens = forward_step(next(data_iters), model, criterion, modes, args)
+                    break
+                except TypeError:
+                    print("Ooops, continuing")
+
+            tot_num_tokens += num_tokens
             # Reduce across processes.
             if isinstance(model, DDP):
                 # reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
@@ -332,6 +345,9 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
             for mode, loss in losses.items():
                 total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float().item()
             iteration += 1
+            if tot_num_tokens >= 7500000:
+                print("Evaluated over {} tokens.".format(tot_num_tokens))
+                break
 
     # Move model back to the train mode.
     model.train()
@@ -426,6 +442,7 @@ def main():
         total_iters = 0
         skipped_iters = 0
         start_epoch = 1
+        tokens_seen = 0
         best_val_loss = float('inf')
         # Resume data loader if necessary.
         if args.resume_dataloader:
@@ -437,9 +454,10 @@ def main():
             if args.shuffle:
                 train_data.batch_sampler.sampler.set_epoch(epoch+args.seed)
             timers('epoch time').start()
-            iteration, skipped = train_epoch(epoch, model, optimizer,
-                                             train_data, lr_scheduler,
-                                             criterion, timers, experiment, metrics, args)
+            iteration, skipped, tokens_seen = train_epoch(epoch, model, optimizer,
+                                              train_data, lr_scheduler,
+                                              criterion, timers, experiment,
+                                              metrics, tokens_seen, args)
             elapsed_time = timers('epoch time').elapsed()
             total_iters += iteration
             skipped_iters += skipped
