@@ -90,8 +90,8 @@ def add_training_args(parser):
                        help='report interval')
     group.add_argument('--train-iters', type=int, default=1000000,
                        help='number of iterations per epoch')
-    group.add_argument('--train-tokens', type=int, default=1000,
-                       help='number of iterations per epoch')
+    group.add_argument('--train-tokens', type=int, default=250000000,
+                       help='number of tokens per epoch')
     group.add_argument('--seed', type=int, default=1234,
                        help='random seed')
     # Learning rate.
@@ -163,6 +163,9 @@ def add_evaluation_args(parser):
                        'Defaults to `--batch-size`')
     group.add_argument('--eval-iters', type=int, default=2000,
                        help='number of iterations per epoch to run '
+                       'validation/test for')
+    group.add_argument('--eval-tokens', type=int, default=2000,
+                       help='number of tokens per epoch to run '
                        'validation/test for')
     group.add_argument('--eval-seq-length', type=int, default=None,
                        help='Maximum sequence length to process for '

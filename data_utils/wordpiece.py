@@ -104,14 +104,20 @@ class BertTokenizer(object):
         self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
         self.max_len = max_len if max_len is not None else int(1e12)
 
-    def tokenize(self, text):
+    def tokenize(self, text, include_upper=False):
+        split_tokens_upper = []
         if self.do_basic_tokenize:
           split_tokens = []
-          for token in self.basic_tokenizer.tokenize(text):
-              for sub_token in self.wordpiece_tokenizer.tokenize(token):
-                  split_tokens.append(sub_token)
+          for token, token_upper in self.basic_tokenizer.tokenize(text):
+            for sub_token in self.wordpiece_tokenizer.tokenize(token):
+              split_tokens.append(sub_token)
+            if include_upper
+              for sub_token in self.wordpiece_tokenizer.tokenize(token_upper):
+                split_tokens_upper.append(sub_token)
         else:
           split_tokens = self.wordpiece_tokenizer.tokenize(text)
+        if include_upper:
+            split_tokens = (split_tokens, split_tokens_upper)
         return split_tokens
 
     def convert_tokens_to_ids(self, tokens):
@@ -172,7 +178,6 @@ class BertTokenizer(object):
         tokenizer = cls(resolved_vocab_file, *inputs, **kwargs)
         return tokenizer
 
-
 class BasicTokenizer(object):
     """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
 
@@ -199,14 +204,20 @@ class BasicTokenizer(object):
         text = self._tokenize_chinese_chars(text)
         orig_tokens = whitespace_tokenize(text)
         split_tokens = []
+        split_tokens_upper = []
         for token in orig_tokens:
+            token_upper = token
             if self.do_lower_case and token not in self.never_split:
+                token_upper = self._run_strip_accents(token)
                 token = token.lower()
                 token = self._run_strip_accents(token)
+
             split_tokens.extend(self._run_split_on_punc(token))
+            split_tokens_upper.extend(self._run_split_on_punc(token_upper))
 
         output_tokens = whitespace_tokenize(" ".join(split_tokens))
-        return output_tokens
+        output_tokens_upper = whitespace_tokenize(" ".join(split_tokens_upper))
+        return zip(output_tokens, output_tokens_upper)
 
     def _run_strip_accents(self, text):
         """Strips accents from a piece of text."""

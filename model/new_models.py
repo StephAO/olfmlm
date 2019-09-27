@@ -88,14 +88,22 @@ class Bert(PreTrainedBertModel):
         self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.sent = torch.nn.ModuleDict()
         self.tok = torch.nn.ModuleDict()
-        if "corrupt_sent" in modes:
-            self.sent["corrupt_sent"] = BertSentHead(config, num_classes=2)
         if "nsp" in modes:
             self.sent["nsp"] = BertSentHead(config, num_classes=2)
         if "sd" in modes:
             self.sent["sd"] = BertSentHead(config, num_classes=3)
         if "so" in modes:
             self.sent["so"] = BertSentHead(config, num_classes=6)
+        if "corrupt_sent" in modes:
+            self.sent["corrupt_sent"] = BertSentHead(config, num_classes=2)
+        if "cap" in modes:
+            self.tok["cap"] = BertTokenHead(config, num_classes=2)
+        if "wlen" in modes:
+            self.tok["wlen"] = BertTokenHead(config, num_classes=1)
+        if "tf" in modes:
+            self.tok["tf"] = BertTokenHead(config, num_classes=1)
+        if "tf_idf" in modes:
+            self.tok["tf_idf"] = BertTokenHead(config, num_classes=1)
         if "corrupt_tok" in modes:
             self.tok["corrupt_tok"] = BertTokenHead(config, num_classes=2)
         self.apply(self.init_bert_weights)
@@ -123,10 +131,19 @@ class Bert(PreTrainedBertModel):
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
             scores["rg"] = self.cosine_similarity(send_emb, recv_emb)
+        if "cap" in modes:
+            scores["cap"] = self.tok["cap"](sequence_output)
+        if "wlen" in modes:
+            scores["wlen"] = self.tok["wlen"](sequence_output)
+        if "tf" in modes:
+            scores["tf"] = self.tok["tf"](sequence_output)
+        if "tf_idf" in modes:
+            scores["tf_idf"] = self.tok["tf_idf"](sequence_output)
         if "corrupt_sent" in modes:
             scores["corrupt_sent"] = self.sent["corrupt_sent"](pooled_output)
         if "corrupt_tok" in modes:
             scores["corrupt_tok"] = self.tok["corrupt_tok"](sequence_output)
+        if
         return scores
 
     def cosine_similarity(self, a, b):

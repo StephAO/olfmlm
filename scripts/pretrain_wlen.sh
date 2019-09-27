@@ -25,8 +25,9 @@ python3 sentence_encoders/pretrain_bert.py \
     --num-workers 0 \
     --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
-    --save /scratch/gobi2/stephaneao/trained_berts/sd/ \
-    --model-type 'sd' \
-    --modes 'mlm,sd' \
+    --save /scratch/gobi2/stephaneao/trained_berts/wlen/ \
+    --model-type 'wlen' \
+    --modes 'mlm,wlen' \
+    --alternating False \
     --incremental False \
     --track-results True

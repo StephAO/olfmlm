@@ -94,7 +94,9 @@ def setup_model_and_optimizer(args, tokenizer):
     model = get_model(tokenizer, args)
     optimizer = get_optimizer(model, args)
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
-    criterion = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
+    criterion_cls = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
+    criterion_reg = torch.nn.MSELoss(reduce=False)
+    criterion = (criterion_cls, criterion_reg)
 
     if args.load is not None:
         epoch, i, total_iters = load_checkpoint(model, optimizer,
@@ -148,7 +150,7 @@ def get_batch(data):
 
 def forward_step(data, model, criterion, modes, args):
     """Forward step."""
-    criterion_sentence = criterion
+    criterion_cls, criterion_reg = criterion
 
     # Get the batch.
     batch = get_batch(data)
@@ -163,15 +165,19 @@ def forward_step(data, model, criterion, modes, args):
     losses = {}
     for mode, score in scores.items():
         if mode == "mlm":
-            mlm_loss = criterion(score.view(-1, args.data_size).contiguous().float(),
+            mlm_loss = criterion_cls(score.view(-1, args.data_size).contiguous().float(),
                                  lm_labels.contiguous().view(-1).contiguous())
             loss_mask = loss_mask.contiguous()
             loss_mask = loss_mask.view(-1)
             losses["mlm"] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
+        elif mode in ["wlen", "tf", "tf_idf"]: # use regression
+            losses[mode] = criterion_reg(score.contiguous().float(),
+                                         sentence_labels[mode].view(-1).contiguous()).mean()
         else:
             # TODO do I need separate criterion sentences?
-            losses[mode] = criterion_sentence(score.contiguous().float(),
-                                                sentence_labels[mode].view(-1).contiguous()).mean()
+            score = score.view(-1, 2) if mode == "corrupt_tok" else score
+            losses[mode] = criterion_cls(score.contiguous().float(),
+                                         sentence_labels[mode].view(-1).contiguous()).mean()
     return losses, num_tokens
 
 
@@ -215,7 +221,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     return losses_reduced, skipped_iter, num_tokens
 
 
-def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, tokens_seen, args):
+def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, past_iters, args):
     """Train one full epoch."""
 
     # Turn on training mode which enables dropout.
@@ -225,7 +231,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     total_losses = {}
 
     # Iterations.
-    max_iters = args.train_iters
+    max_tokens = args.train_tokens
+    tokens = 0
     iteration = 0
     skipped_iters = 0
     if args.resume_dataloader:
@@ -236,14 +243,12 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     modes = args.modes.split(',')
     if args.incremental:
         modes = modes[:epoch]
-    train_data.dataset.set_args(modes, epoch, args.train_iters)
+    train_data.dataset.set_args(modes, past_iters)
     data_iters = iter(train_data)
-    tot_num_tokens = tokens_seen
 
     timers('interval time').start()
-    while iteration < max_iters:
+    while tokens < max_tokens:
         # TODO set mode
-        print(iteration, flush=True)
         while True:
             try:
                 losses, skipped_iter, num_tokens = train_step(next(data_iters),
@@ -257,7 +262,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             except TypeError:
                 print("Ooops, continuing")
 
-        tot_num_tokens += num_tokens
+        max_tokens += num_tokens
         skipped_iters += skipped_iter
         iteration += 1
 
@@ -266,7 +271,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float()
 
         # Logging.
-        if iteration % args.log_interval == 0:
+        if tokens % args.log_interval == 0:
             learning_rate = optimizer.param_groups[0]['lr']
             avg_loss = {}
             for mode, v in total_losses.items():
@@ -274,8 +279,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
             elapsed_time = timers('interval time').elapsed()
             log_string = ' epoch{:2d} |'.format(epoch)
-            log_string += ' iteration {:8d}/{:8d} |'.format(iteration,
-                                                            max_iters)
+            log_string += ' tokens {:8d}/{:8d} |'.format(tokens, max_tokens)
             log_string += ' elapsed time per iteration (ms): {:.1f} |'.format(
                 elapsed_time * 1000.0 / args.log_interval)
             log_string += ' learning rate {:.3E} |'.format(learning_rate)
@@ -284,7 +288,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             print(log_string, flush=True)
             total_losses = {}
 
-            experiment.set_step(iteration + (epoch - 1) * max_iters)
+            experiment.set_step(iteration + past_iters)
             metrics['learning_rate'] = learning_rate
             for mode, v in avg_loss.items():
                 metrics[mode] = v
@@ -298,11 +302,9 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             save_checkpoint(model_suffix, epoch, iteration, model, optimizer,
                             lr_scheduler, args)
 
-        if tot_num_tokens >= 300000000:
-            print("I have learnt over {} tokens. Ending my training".format(tot_num_tokens))
-            break
+    print("Learnt using {} tokens over {} iterations this epoch".format(max_tokens, iteration))
 
-    return iteration, skipped_iters, tot_num_tokens
+    return iteration, skipped_iters
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
     """Evaluation."""
@@ -311,15 +313,15 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     model.eval()
 
     total_losses = {}
-    max_iters = args.eval_iters
+    max_tokens = args.eval_tokens
+    tokens = 0
     modes = args.modes.split(',')
-    data_source.dataset.set_args(modes, epoch, args.eval_iters)
+    data_source.dataset.set_args(modes, 0)
     data_iters = iter(data_source)
-    tot_num_tokens = 0
 
     with torch.no_grad():
         iteration = 0
-        while iteration < max_iters:
+        while tokens < max_tokens:
             # Forward evaluation.
             
             while True:
@@ -329,7 +331,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
                 except TypeError:
                     print("Ooops, continuing")
 
-            tot_num_tokens += num_tokens
+            tokens += num_tokens
             # Reduce across processes.
             if isinstance(model, DDP):
                 # reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
@@ -345,9 +347,8 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
             for mode, loss in losses.items():
                 total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float().item()
             iteration += 1
-            if tot_num_tokens >= 7500000:
-                print("Evaluated over {} tokens.".format(tot_num_tokens))
-                break
+
+    print("Evaluated using {} tokens over {} iterations.".format(tokens, iteration))
 
     # Move model back to the train mode.
     model.train()
@@ -442,7 +443,6 @@ def main():
         total_iters = 0
         skipped_iters = 0
         start_epoch = 1
-        tokens_seen = 0
         best_val_loss = float('inf')
         # Resume data loader if necessary.
         if args.resume_dataloader:
@@ -454,10 +454,10 @@ def main():
             if args.shuffle:
                 train_data.batch_sampler.sampler.set_epoch(epoch+args.seed)
             timers('epoch time').start()
-            iteration, skipped, tokens_seen = train_epoch(epoch, model, optimizer,
-                                              train_data, lr_scheduler,
-                                              criterion, timers, experiment,
-                                              metrics, tokens_seen, args)
+            iteration, skipped = train_epoch(epoch, model, optimizer,
+                                             train_data, lr_scheduler,
+                                             criterion, timers, experiment,
+                                             metrics, total_iters, args)
             elapsed_time = timers('epoch time').elapsed()
             total_iters += iteration
             skipped_iters += skipped

@@ -22,10 +22,13 @@ import json
 import csv
 import math
 import random
+import unicodedata
 
 from torch.utils import data
 import pandas as pd
+import pickle
 import numpy as np
+import os
 
 import nltk
 nltk.download('punkt')
@@ -33,6 +36,24 @@ from nltk import tokenize
 
 from sentence_encoders.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
 from sentence_encoders.data_utils.tokenization import Tokenization
+
+def clean_tokens(text):
+    """Runs basic whitespace cleaning and splitting on a piece of text."""
+    text = text.strip()
+    if not text:
+        return []
+    tokens = text.split()
+    clean_tokens = []
+    for text in tokens:
+        text = unicodedata.normalize("NFD", text)
+        output = []
+        for char in text:
+            cat = unicodedata.category(char)
+            if cat == "Mn":
+                continue
+            output.append(char)
+        clean_tokens.append("".join(output))
+    return clean_tokens
 
 class ConcatDataset(data.Dataset):
     """
@@ -478,18 +499,22 @@ class bert_dataset(data.Dataset):
         self.epoch = 0
         self.permutations = {0: [0,1,2], 1: [1,2,0], 2: [2,0,1], 3: [1,0,2], 4: [0,2,1], 5: [2,1,0]}
         self.num_tokens_seen = 0
+        self.useless_docs = []
+        self.total_docs_used = 0
+        curr_path = os.path.dirname(__file__)
+        with open(os.path.relpath("../idf.out", curr_path), "rb") as f:
+            self.idfs = pickle.load(f)
 
     def __len__(self):
         return self.dataset_size
 
-    def set_args(self, modes, epoch, num_iters):
+    def set_args(self, modes, past_iters):
         # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
         self.modes = modes
-        self.epoch = epoch
-        self.num_iters = num_iters
+        self.past_iters = past_iters
         self.split_percent = 0.0
-        self.corruption_rate = 0.0
+        self.corruption_rate = 0.10
         self.num_sent_per_seq = 1
         self.target_seq_length = self.max_seq_len
         self.concat = False
@@ -526,31 +551,28 @@ class bert_dataset(data.Dataset):
             self.num_sent_per_seq = 2
             self.task_id = 1
         if "corrupt_sent" in self.modes or "corrupt_tok" in self.modes: # Corrupt Data
-            self.corruption_rate = 0.10
+            self.corruption_rate = 0.50
             self.task_id = 2
 
     def __getitem__(self, idx):
         # TODO keep track of known documents that are too short
         # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx + (self.epoch - 1) * self.num_iters)
+        rng = random.Random(idx + self.past_iters)
         # get sentence pair and label
-        task_labels = None
-        tokens = []
-        print("a", flush=True, end="-")
-        while (task_labels is None) or any([len(x) < 1 for x in tokens]):
-            tokens, token_types, task_labels, corrupted_ids = self.create_random_sentencepair(rng)
+        sentence_labels = None
+        tokens, token_types, token_labels = [], [], []
+        while (sentence_labels is None) or any([len(x) < 1 for x in tokens]):
+            tokens, token_types, sentence_labels, token_labels, corrupted_ids = self.create_random_sentencepair(rng)
         # truncate sentence pair to max_seq_len
-        print("b", flush=True, end="-")
-        self.truncate_sequences(tokens, token_types, self.max_seq_len, rng)
+        self.truncate_sequences(tokens, token_types, token_labels, self.max_seq_len, rng)
         # join sentence pair, mask, and pad
-        print("c", flush=True, end="-")
-        output, mask, mask_labels, pad_mask = self.create_masked_lm_predictions(tokens, token_types, self.mask_lm_prob,
-                                                                                self.max_preds_per_seq,
-                                                                                self.vocab_words, rng, self.concat,
-                                                                                do_not_mask_tokens=corrupted_ids)
+        output, token_labels, mask, mask_labels, pad_mask = \
+            self.create_masked_lm_predictions(tokens, token_types, token_labels, self.mask_lm_prob,
+                                              self.max_preds_per_seq, self.vocab_words, rng, self.concat,
+                                              do_not_mask_tokens=corrupted_ids)
         num_tokens = nested_list_len(tokens)
-        task_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in task_labels.items()}
-        sample = {'task_labels': task_labels, 'n': len(output),'num_tokens': num_tokens}
+        sentence_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in sentence_labels.items()}
+        sample = {'sentence_labels': sentence_labels, 'n': len(output),'num_tokens': num_tokens}
         for i in range(len(output)):
             tokens, token_types = output[i]
             sample.update({'text_' + str(i): np.array(tokens), 'types_' + str(i): np.array(token_types),
@@ -567,6 +589,7 @@ class bert_dataset(data.Dataset):
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
         sentence_labels = {}
+        token_labels = {"cap": [], "wlen": [], "tf": [], "tf_idf": []}
         # either split or corrupt not both
         assert self.split_percent * self.corruption_rate == 0
         split = rng.random()
@@ -577,8 +600,9 @@ class bert_dataset(data.Dataset):
                 sentence_labels["sd"] = 0
             tokens = []
             for i in range(self.num_sent_per_seq):
-                tok, tok_types = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
+                tok, tok_types, tok_labels = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
                 tokens.append(tok)
+                token_labels = {k: token_labels[k].append(v) for k, v in tok_labels.items()}
             if self.shuffle:
                 rng.shuffle(tokens)
             token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
@@ -587,14 +611,14 @@ class bert_dataset(data.Dataset):
                 sentence_labels["nsp"] = False
             if "sd" in self.modes:
                 sentence_labels["sd"] = 1
-            tokens, token_types = self.get_sentence(self.target_seq_length * 2.5, rng,
+            tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * 2.5, rng,
                                                     splits=[self.target_seq_length, self.target_seq_length],
                                                     shuffle=self.shuffle)
         else: # Same document, non-contiguous
             sentence_labels["sd"] = 2
             splits = [self.target_seq_length for _ in range(self.num_sent_per_seq)]
-            tokens, token_types = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + 1),
-                                                    rng, splits=splits, non_contiguous=bool("sd" in self.modes), 
+            tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + 1),
+                                                    rng, splits=splits, non_contiguous=bool("sd" in self.modes),
                                                     shuffle=self.shuffle)
             if "so" in self.modes:
                 sentence_labels["so"] = rng.randint(0, 5)
@@ -603,19 +627,20 @@ class bert_dataset(data.Dataset):
                 token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in
                                range(len(tokens))]
 
-        sentence_labels["corrupt_tok"] = np.zeros(self.max_seq_len)
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
         if corrupted:
             sentence_labels["corrupt_sent"] = True
-            print("##",len(tokens))
             for i in range(len(tokens)):
                 ids.append(self.corrupt_seq(tokens[i], token_types[i], rng))
-            sentence_labels["corrupt_tok"][ids[0]] = 1.
+            token_labels["corrupt_tok"] = np.zeros_like(tokens)
+            for i in range(len(tokens)):
+                token_labels["corrupt_tok"][ids[i]] = 1.
         else:
             sentence_labels["corrupt_sent"] = False
+            token_labels["corrupt_tok"] = np.zeros_like(tokens)
 
-        return tokens, token_types, sentence_labels, ids
+        return tokens, token_types, sentence_labels, token_labels, ids
 
     def sentence_tokenize(self, sent, sentence_num=0, beginning=False, ending=False):
         """tokenize sentence and get token types if tokens=True"""
@@ -624,10 +649,10 @@ class bert_dataset(data.Dataset):
         token_types = [self.tokenizer.get_type(str_type).Id]*len(tokens)
         return tokens, token_types
 
-    def sentence_split(self, document, min_length):
+    def sentence_split(self, document):
         """split document into sentences"""
-        if len(self.tokenizer.EncodeAsIds(document).tokenization) < min_length:
-            return None
+        # if len(self.tokenizer.EncodeAsIds(document).tokenization) < min_length:
+        #     return None
         lines = document.split('\n')
         if self.presplit_sentences:
             return [line for line in lines if line]
@@ -644,7 +669,7 @@ class bert_dataset(data.Dataset):
             rtn = rtn['text']
         return rtn
 
-    def truncate_sequences(self, tokens, token_types, max_seq_len, rng):
+    def truncate_sequences(self, tokens, token_types, token_labels, max_seq_len, rng):
         """
         Truncate sequence pair according to original BERT implementation:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
@@ -661,9 +686,11 @@ class bert_dataset(data.Dataset):
             if rng.random() < 0.5:
                 tokens[trunc_idx].pop(0)
                 token_types[trunc_idx].pop(0)
+                token_labels[trunc_idx].pop(0)
             else:
                 tokens[trunc_idx].pop()
                 token_types[trunc_idx].pop()
+                token_labels[trunc_idx].pop()
 
     def mask_token(self, idx, tokens, types, vocab_words, rng):
         """
@@ -692,18 +719,36 @@ class bert_dataset(data.Dataset):
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
+    def get_word_labels(self, sent, doc):
+        doc_lower = self.tokenizer.text_tokenizer.tokenize(" ".join(doc))
+        sent_lower, upper = self.tokenizer.text_tokenizer.tokenize(sent, include_upper=True)
+        ids = self.text_tokenizer.convert_tokens_to_ids(sent_lower)
+        capitalized = [1. if w[0].isupper() else 0. for w in upper]
+        word_len = [len(w.strip("#")) for w in sent_lower]
+        tf = [doc_lower.count(w) / len(doc_lower) for w in sent_lower]
+        idf = [self.idfs[tok] for tok in ids]
+        assert len(tf) == len(idf)
+        tf_idf = [tf[i] * idf[i] for i in range(len(sent_lower))]
+        print("-" * 50)
+        print(upper)
+        print({"cap": capitalized, "wlen": word_len, "tf": tf, "tf_idf": tf_idf})
+        return {"cap": capitalized, "wlen": word_len, "tf": tf, "tf_idf": tf_idf}
+
     def get_sentence(self, target_seq_length, rng, sentence_num=0, splits=None, non_contiguous=False, shuffle=False):
         tokens = []
         token_types = []
+        token_labels = {"cap": [], "wlen": [], "tf": [], "tf_idf": []}
         split_points = []
         doc = None
         doc_idx = rng.randint(0, self.ds_len - 1)
 
         while not tokens:
             while doc is None:
-                doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
-                if not doc:
-                    doc_idx = (doc_idx + 1) % self.ds_len
+                while doc_idx in self.useless_docs:
+                    doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
+                    if not doc:
+                        self.useless_docs.append(doc_idx)
+                        doc_idx = (doc_idx + 1) % self.ds_len
 
             end_idx = rng.randint(0, len(doc) - 1)
             start_idx = end_idx - 1
@@ -712,6 +757,7 @@ class bert_dataset(data.Dataset):
                     split_points += [len(tokens)]
                 if end_idx < len(doc):
                     sentence = doc[end_idx]
+                    token_labels = {k: token_labels[k] + v for k, v in self.get_word_labels(sentence).items()}
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, end_idx == 0,
                                                                       end_idx == len(doc))
                     if len(sentence) + len(tokens) > target_seq_length:
@@ -721,6 +767,7 @@ class bert_dataset(data.Dataset):
                     end_idx += 1
                 elif start_idx >= 0:
                     sentence = doc[start_idx]
+                    token_labels = {k: token_labels[k] + v for k, v in self.get_word_labels(sentence).items()}
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, start_idx == 0,
                                                                       start_idx == len(doc))
                     if len(sentence) + len(tokens) > target_seq_length:
@@ -760,17 +807,20 @@ class bert_dataset(data.Dataset):
                 # Can't split if either there were not enough split points or one of the splits is of length 0
                 if np.prod(split_idxs[1:]) * np.prod([len(t) for t in tokens]) == 0 or failed:
                     tokens = []
-                    token_types = []
+                    token_types = {}
+                    token_labels = {"cap": [], "wlen": [], "tf": [], "tf_idf": []}
                     split_points = []
                     doc = None
+                    self.useless_docs.append(doc_idx)
                     doc_idx = (doc_idx + 1) % self.ds_len
                     continue
                 token_types = [[self.tokenizer.get_type('str' + str(i)).Id]*len(tokens[i]) for i in range(len(tokens))]
 
-        return tokens, token_types
+        self.total_docs_used += 1
+        return tokens, token_types, token_labels
 
-    def create_masked_lm_predictions(self, tokens, token_types, mask_lm_prob, max_preds_per_seq, vocab_words, rng,
-                                     concat=False, do_not_mask_tokens=[]):
+    def create_masked_lm_predictions(self, tokens, token_types, token_labels, mask_lm_prob, max_preds_per_seq,
+                                     vocab_words, rng, concat=False, do_not_mask_tokens=[]):
         """
         Mask sequence pair for BERT training according to:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L338
@@ -779,14 +829,20 @@ class bert_dataset(data.Dataset):
         if concat:
             masked_tokens = [self.tokenizer.get_command('ENC').Id]
             masked_tt = [token_types[0][0]]
+            masked_tl = {k: [0.] for k in token_labels.keys()}
             cum_len = 1
             cd = []
             for i in range(len(tokens)):
                 masked_tokens += tokens[i] + [self.tokenizer.get_command('sep').Id]
                 masked_tt += token_types[i] + [token_types[i][0]]
+                for k in token_labels.keys():
+                    masked_tl[k] += token_labels[k][i] + [0.]
                 cd += [idx + cum_len for idx in range(len(tokens[i]))]
                 cum_len += len(tokens[i]) + 1
             masked_tt, _ = self.pad_seq(masked_tt)
+            for k in token_labels.keys():
+                masked_tl[k], _ = self.pad_seq(masked_tl[k])
+                token_labels[k] = [masked_tl[k]]
             tokens = [masked_tokens]
             token_types = [masked_tt]
             cand_indices = [cd]
@@ -795,6 +851,10 @@ class bert_dataset(data.Dataset):
                 tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
                 token_types[i] = [token_types[i][0]] + token_types[i] + [token_types[i][0]]
                 token_types[i], _ = self.pad_seq(token_types[i])
+                for k in token_labels.keys():
+                    token_labels[k][i] = [0.] + token_types[i] + [0.]
+                    token_labels[k][i], _ = self.pad_seq(token_labels[k][i])
+
                 cand_indices += [[idx + 1 for idx in range(len(tokens[i]))]]
         output = [[] for _ in range(len(tokens))]
         output_tokens = [[] for _ in range(len(tokens))]
@@ -819,7 +879,7 @@ class bert_dataset(data.Dataset):
 
             output[i] = (output_tokens[i], token_types[i])
 
-        return output, mask, mask_labels, pad_mask
+        return output, token_labels, mask, mask_labels, pad_mask
 
     def corrupt_replace(self, tokens, token_types, rng, num_to_corrupt):
         indices = []
