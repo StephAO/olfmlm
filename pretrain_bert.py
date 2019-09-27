@@ -458,6 +458,9 @@ def main():
                                              train_data, lr_scheduler,
                                              criterion, timers, experiment,
                                              metrics, total_iters, args)
+
+            docs_used, useless_docs = train_data.dataset.get_doc_stats()
+            print("Used {} docs, skipped {} docs".format(docs_used, useless_docs))
             elapsed_time = timers('epoch time').elapsed()
             total_iters += iteration
             skipped_iters += skipped

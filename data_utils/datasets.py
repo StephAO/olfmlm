@@ -508,6 +508,9 @@ class bert_dataset(data.Dataset):
     def __len__(self):
         return self.dataset_size
 
+    def get_doc_stats(self):
+        return (self.total_docs_used, len(self.useless_docs))
+
     def set_args(self, modes, past_iters):
         # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
@@ -744,11 +747,10 @@ class bert_dataset(data.Dataset):
 
         while not tokens:
             while doc is None:
-                while doc_idx in self.useless_docs:
-                    doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
-                    if not doc:
-                        self.useless_docs.append(doc_idx)
-                        doc_idx = (doc_idx + 1) % self.ds_len
+                doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
+                while not doc or doc_idx in self.useless_docs:
+                    self.useless_docs.append(doc_idx)
+                    doc_idx = (doc_idx + 1) % self.ds_len
 
             end_idx = rng.randint(0, len(doc) - 1)
             start_idx = end_idx - 1
