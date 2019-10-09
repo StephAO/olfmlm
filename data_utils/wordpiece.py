@@ -111,7 +111,7 @@ class BertTokenizer(object):
           for token, token_upper in self.basic_tokenizer.tokenize(text):
             for sub_token in self.wordpiece_tokenizer.tokenize(token):
               split_tokens.append(sub_token)
-            if include_upper
+            if include_upper:
               for sub_token in self.wordpiece_tokenizer.tokenize(token_upper):
                 split_tokens_upper.append(sub_token)
         else:

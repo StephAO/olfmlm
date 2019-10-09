@@ -24,9 +24,11 @@ import math
 import random
 import unicodedata
 
+from klepto.archives import file_archive
 from torch.utils import data
 import pandas as pd
 import pickle
+from math import ceil
 import numpy as np
 import os
 
@@ -494,17 +496,18 @@ class bert_dataset(data.Dataset):
         if self.dataset_size is None:
             self.dataset_size = self.ds_len * (self.ds_len-1)
         self.presplit_sentences = presplit_sentences
-        self.corrupt_per_sentence = 0.05
+        self.corrupt_per_sentence = 0.10
         self.target_seq_length = self.max_seq_len
         self.epoch = 0
-        self.permutations = {0: [0,1,2], 1: [1,2,0], 2: [2,0,1], 3: [1,0,2], 4: [0,2,1], 5: [2,1,0]}
+        self.permutations = {0: [0,1], 1: [1,0]} #{0: [0,1,2], 1: [1,2,0], 2: [2,0,1], 3: [1,0,2], 4: [0,2,1], 5: [2,1,0]}
         self.num_tokens_seen = 0
         self.useless_docs = []
         self.total_docs_used = 0
-        curr_path = os.path.dirname(__file__)
-        with open(os.path.relpath("../idf.out", curr_path), "rb") as f:
-            self.idfs = pickle.load(f)
-
+        self.archive_path = os.path.dirname(__file__) + "/../archives/"
+        self.idf_archive = file_archive(self.archive_path + "idf_archive")
+        self.idf_archive.load()
+        self._all_tf = []
+	
     def __len__(self):
         return self.dataset_size
 
@@ -516,8 +519,8 @@ class bert_dataset(data.Dataset):
         print("setting up args, modes:", modes)
         self.modes = modes
         self.past_iters = past_iters
-        self.split_percent = 0.0
-        self.corruption_rate = 0.10
+        self.split_percent = 1.0
+        self.corruption_rate = 0.
         self.num_sent_per_seq = 1
         self.target_seq_length = self.max_seq_len
         self.concat = False
@@ -528,8 +531,7 @@ class bert_dataset(data.Dataset):
         assert [x in self.sentence_distances for x in self.modes].count(True) <= 1
         if "mlm" in self.modes: # Masked Language Data
             self.mask_lm_prob = 0.15
-            self.task_id = 0
-            self.concat = True
+            self.task_id = 1
         if "nsp" in self.modes: # Next Sentence Prediction Data
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
@@ -545,8 +547,8 @@ class bert_dataset(data.Dataset):
             self.shuffle = True
         if "so" in self.modes: # Sentence Re-ordering Data
             self.split_percent = 0.0
-            self.num_sent_per_seq = 3
-            self.target_seq_length = int(self.max_seq_len / 3)
+            self.num_sent_per_seq = 2
+            self.target_seq_length = int(self.max_seq_len / self.num_sent_per_seq)
             self.concat = True
             self.task_id = 1
             self.shuffle = False
@@ -555,7 +557,7 @@ class bert_dataset(data.Dataset):
             self.task_id = 1
         if "corrupt_sent" in self.modes or "corrupt_tok" in self.modes: # Corrupt Data
             self.corruption_rate = 0.50
-            self.task_id = 2
+            self.task_id = 1
 
     def __getitem__(self, idx):
         # TODO keep track of known documents that are too short
@@ -574,8 +576,9 @@ class bert_dataset(data.Dataset):
                                               self.max_preds_per_seq, self.vocab_words, rng, self.concat,
                                               do_not_mask_tokens=corrupted_ids)
         num_tokens = nested_list_len(tokens)
-        sentence_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in sentence_labels.items()}
-        sample = {'sentence_labels': sentence_labels, 'n': len(output),'num_tokens': num_tokens}
+        aux_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in sentence_labels.items()}
+        aux_labels.update({k: np.array(v) for k, v in token_labels.items()})
+        sample = {'aux_labels': aux_labels, 'n': len(output),'num_tokens': num_tokens}
         for i in range(len(output)):
             tokens, token_types = output[i]
             sample.update({'text_' + str(i): np.array(tokens), 'types_' + str(i): np.array(token_types),
@@ -583,7 +586,10 @@ class bert_dataset(data.Dataset):
                            'mask_' + str(i): np.array(mask[i]), 'mask_labels_' + str(i): np.array(mask_labels[i]),
                            'pad_mask_' + str(i): np.array(pad_mask[i])})
         
-        print("d", flush=True, end="-")
+        if idx % 100 == 0 and False:
+            print("Tokens (min, mean, max):", np.min(self.avg_len), np.mean(self.avg_len), np.max(self.avg_len))
+            print("Docs used {}, useless docs {}".format(self.total_docs_used, len(self.useless_docs)))
+            print("Sampled mean tf: {}".format(np.mean(self._all_tf)))
         return sample
 
     def create_random_sentencepair(self, rng):
@@ -592,9 +598,9 @@ class bert_dataset(data.Dataset):
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
         sentence_labels = {}
-        token_labels = {"cap": [], "wlen": [], "tf": [], "tf_idf": []}
+        token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
         # either split or corrupt not both
-        assert self.split_percent * self.corruption_rate == 0
+        #assert self.split_percent * self.corruption_rate == 0
         split = rng.random()
         if split < self.split_percent: # Split sequence
             if "nsp" in self.modes:
@@ -604,8 +610,8 @@ class bert_dataset(data.Dataset):
             tokens = []
             for i in range(self.num_sent_per_seq):
                 tok, tok_types, tok_labels = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
-                tokens.append(tok)
-                token_labels = {k: token_labels[k].append(v) for k, v in tok_labels.items()}
+                tokens.append(tok) 
+                [token_labels[k].append(v) for k, v in tok_labels.items()]
             if self.shuffle:
                 rng.shuffle(tokens)
             token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
@@ -632,17 +638,19 @@ class bert_dataset(data.Dataset):
 
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
+        token_labels["corrupt_tok"] = []
         if corrupted:
             sentence_labels["corrupt_sent"] = True
             for i in range(len(tokens)):
                 ids.append(self.corrupt_seq(tokens[i], token_types[i], rng))
-            token_labels["corrupt_tok"] = np.zeros_like(tokens)
+                token_labels["corrupt_tok"].append(np.zeros_like(tokens[i]))
             for i in range(len(tokens)):
-                token_labels["corrupt_tok"][ids[i]] = 1.
+                token_labels["corrupt_tok"][i][ids[i]] = 1.
+                token_labels["corrupt_tok"][i] = token_labels["corrupt_tok"][i].tolist()
         else:
             sentence_labels["corrupt_sent"] = False
-            token_labels["corrupt_tok"] = np.zeros_like(tokens)
-
+            for i in range(len(tokens)):
+                token_labels["corrupt_tok"].append(np.zeros_like(tokens[i]).tolist())
         return tokens, token_types, sentence_labels, token_labels, ids
 
     def sentence_tokenize(self, sent, sentence_num=0, beginning=False, ending=False):
@@ -654,8 +662,9 @@ class bert_dataset(data.Dataset):
 
     def sentence_split(self, document):
         """split document into sentences"""
-        # if len(self.tokenizer.EncodeAsIds(document).tokenization) < min_length:
-        #     return None
+        if len(document.split(' ')) < 10:
+            #print(document)
+            return None
         lines = document.split('\n')
         if self.presplit_sentences:
             return [line for line in lines if line]
@@ -689,11 +698,13 @@ class bert_dataset(data.Dataset):
             if rng.random() < 0.5:
                 tokens[trunc_idx].pop(0)
                 token_types[trunc_idx].pop(0)
-                token_labels[trunc_idx].pop(0)
+                for k, v in token_labels.items():
+                    v[trunc_idx].pop(0)
             else:
                 tokens[trunc_idx].pop()
                 token_types[trunc_idx].pop()
-                token_labels[trunc_idx].pop()
+                for k,v in token_labels.items():
+                    v[trunc_idx].pop(0)
 
     def mask_token(self, idx, tokens, types, vocab_words, rng):
         """
@@ -715,41 +726,126 @@ class bert_dataset(data.Dataset):
     def pad_seq(self, seq):
         """helper function to pad sequence pair"""
         self.avg_len.append(len(seq))
-        if len(self.avg_len) == 100000:
-            print("Tokens (min, mean, max):", np.min(self.avg_len), np.mean(self.avg_len), np.max(self.avg_len))
         num_pad = max(0, self.max_seq_len - len(seq))
         pad_mask = [0] * len(seq) + [1] * num_pad
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
         return seq, pad_mask
 
+    def get_caps(self, s, t):
+        si = 0
+        ti = 0
+        tii = 0
+        caps = [0] * len(t)
+        while si < len(s) and ti < len(t):
+            if t[ti][tii] == s[si].lower():
+                if s[si].isupper():
+                    caps[ti] = 1
+                si += 1
+                tii += 1
+            elif t[ti][tii] == "#" or ord(t[ti][tii]) >= 128:
+                tii += 1
+            elif s[si] in [" ", "#"] or ord(s[si]) >= 128:
+                si += 1
+            elif t[ti] == "[UNK]":
+                tii = 0
+                ti += 1
+                if ti >= len(t):
+                    break
+            else:
+                while s[si].lower() != t[ti][tii]:
+                    si += 1
+                    if si >= len(s):
+                        print(s, si)
+                        print(t, ti, tii)
+                        break
+                        
+            if tii == len(t[ti]):
+                tii = 0
+                ti += 1
+        return caps
+
+    def run_strip_accents(self, text):
+        """Strips accents from a piece of text."""
+        text = unicodedata.normalize("NFD", text)
+        output = []
+        for char in text:
+            cat = unicodedata.category(char)
+            if cat == "Mn":
+                continue
+            output.append(char)
+        return "".join(output)
+
+    def get_word_labels_2(self, sent, doc_idx):
+        labels = {}
+        tokens = self.tokenizer.text_tokenizer.tokenize(sent)
+        ids = self.tokenizer.text_tokenizer.convert_tokens_to_ids(tokens) 
+        sent = self.run_strip_accents(sent)
+        if "cap" in self.modes:
+            labels["cap"] = self.get_caps(sent, tokens)
+        if "wlen" in self.modes:
+            labels["wlen"] = [len(w.strip("#")) for w in tokens]
+        if "tf" in self.modes or "tf_idf" in self.modes:
+            arch_idx = int(doc_idx / self.bin_size)
+            if doc_idx not in self.tf_archives[arch_idx]:
+                self.tf_archives[arch_idx].load(doc_idx)
+            if doc_idx not in self.tf_archives[arch_idx]:
+                print("OH SHIT", doc_idx, arch_idx, self.tf_archives[arch_idx])
+            for tok in ids:
+                if tok not in self.tf_archives[arch_idx][doc_idx]:
+                    print(doc_idx, tok, self.tf_archives[arch_idx][doc_idx].keys())
+                    self.tf_archives[arch_idx][doc_idx][tok] = 0
+        
+            labels["tf"] = [self.tf_archives[arch_idx][doc_idx].get(tok, 0) for tok in ids]
+            if "tf_idf" in self.modes:
+                idf = [self.idf_archive[tok] for tok in ids]
+                #assert len(tf) == len(idf)
+                #assert len(capitalized) == len(tokens)
+                labels["tf_idf"] = [labels["tf"][i] * idf[i] for i in range(len(tokens))]
+        return labels
+
+    def get_tf(self, sent, doc):
+        tf = {}
+        for word in doc:   
+            tf[word] = tf.get(word, 0) + 1
+        _min = min(tf.values())
+        _max = max(tf.values())
+        scale = 10
+        scaling = lambda x: ((scale - 1) * (x - _min) / (_max - _min + 1e-8)) + 1
+        reg_tf = [scaling(tf[w]) for w in sent]
+        #print(sent, reg_tf, tf)
+        self._all_tf.extend(reg_tf)
+        return reg_tf
+
     def get_word_labels(self, sent, doc):
-        doc_lower = self.tokenizer.text_tokenizer.tokenize(" ".join(doc))
-        sent_lower, upper = self.tokenizer.text_tokenizer.tokenize(sent, include_upper=True)
-        ids = self.text_tokenizer.convert_tokens_to_ids(sent_lower)
-        capitalized = [1. if w[0].isupper() else 0. for w in upper]
-        word_len = [len(w.strip("#")) for w in sent_lower]
-        tf = [doc_lower.count(w) / len(doc_lower) for w in sent_lower]
-        idf = [self.idfs[tok] for tok in ids]
-        assert len(tf) == len(idf)
-        tf_idf = [tf[i] * idf[i] for i in range(len(sent_lower))]
-        print("-" * 50)
-        print(upper)
-        print({"cap": capitalized, "wlen": word_len, "tf": tf, "tf_idf": tf_idf})
-        return {"cap": capitalized, "wlen": word_len, "tf": tf, "tf_idf": tf_idf}
+        labels = {}
+        tokens = self.tokenizer.text_tokenizer.tokenize(sent)
+        ids = self.tokenizer.text_tokenizer.convert_tokens_to_ids(tokens) 
+        sent = self.run_strip_accents(sent)
+        if "cap" in self.modes:
+            labels["cap"] = self.get_caps(sent, tokens)
+        if "wlen" in self.modes:
+            labels["wlen"] = [len(w.strip("#")) for w in tokens]
+        if "tf" in self.modes or "tf_idf" in self.modes:
+            doc_tokens = self.tokenizer.text_tokenizer.tokenize(" ".join(doc)) 
+            labels["tf"] = self.get_tf(tokens, doc_tokens)
+            idf = [self.idf_archive[tok] for tok in ids]
+            labels["tf_idf"] = [labels["tf"][i] * idf[i] for i in range(len(tokens))]
+        return labels
 
     def get_sentence(self, target_seq_length, rng, sentence_num=0, splits=None, non_contiguous=False, shuffle=False):
         tokens = []
         token_types = []
-        token_labels = {"cap": [], "wlen": [], "tf": [], "tf_idf": []}
+        token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
         split_points = []
         doc = None
         doc_idx = rng.randint(0, self.ds_len - 1)
 
         while not tokens:
             while doc is None:
-                doc = self.sentence_split(self.get_doc(doc_idx), target_seq_length)
-                while not doc or doc_idx in self.useless_docs:
+                doc = self.sentence_split(self.get_doc(doc_idx))
+                if not doc:
                     self.useless_docs.append(doc_idx)
+                while doc_idx in self.useless_docs:
                     doc_idx = (doc_idx + 1) % self.ds_len
 
             end_idx = rng.randint(0, len(doc) - 1)
@@ -759,21 +855,23 @@ class bert_dataset(data.Dataset):
                     split_points += [len(tokens)]
                 if end_idx < len(doc):
                     sentence = doc[end_idx]
-                    token_labels = {k: token_labels[k] + v for k, v in self.get_word_labels(sentence).items()}
+                    tl = self.get_word_labels(sentence, doc)
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, end_idx == 0,
                                                                       end_idx == len(doc))
                     if len(sentence) + len(tokens) > target_seq_length:
                         break
+                    token_labels = {k: token_labels[k] + v for k, v in tl.items() if k in token_labels} 
                     tokens = tokens + sentence
                     token_types = token_types + sentence_types
                     end_idx += 1
                 elif start_idx >= 0:
                     sentence = doc[start_idx]
-                    token_labels = {k: token_labels[k] + v for k, v in self.get_word_labels(sentence).items()}
+                    tl = self.get_word_labels(sentence, doc)
                     sentence, sentence_types = self.sentence_tokenize(sentence, sentence_num, start_idx == 0,
                                                                       start_idx == len(doc))
                     if len(sentence) + len(tokens) > target_seq_length:
-                        break
+                        break 
+                    token_labels = {k: token_labels[k] + v for k, v in tl.items() if k in token_labels} 
                     tokens = sentence + tokens
                     token_types = sentence_types + token_types
                     start_idx -= 1
@@ -800,7 +898,15 @@ class bert_dataset(data.Dataset):
                         idx += 1
                         if idx == len(_splits) + 1:
                             break
+                len_tok = len(tokens)
                 tokens = [tokens[split_idxs[i - 1]: split_idxs[i]] for i in range(1, len(split_idxs))]
+                for k in token_labels.keys():
+                    if len(token_labels[k]) != len_tok:
+                        print("\n", len(token_labels[k]), "==", len_tok)
+                        print(token_labels)
+                        print(tokens)
+                    #assert len(token_labels[k]) == len_tok
+                    token_labels[k] = [token_labels[k][split_idxs[i - 1]: split_idxs[i]] for i in range(1, len(split_idxs))]
                 if non_contiguous:
                     tokens = tokens[::2]
                 if shuffle:
@@ -809,8 +915,8 @@ class bert_dataset(data.Dataset):
                 # Can't split if either there were not enough split points or one of the splits is of length 0
                 if np.prod(split_idxs[1:]) * np.prod([len(t) for t in tokens]) == 0 or failed:
                     tokens = []
-                    token_types = {}
-                    token_labels = {"cap": [], "wlen": [], "tf": [], "tf_idf": []}
+                    token_types = []
+                    token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]} 
                     split_points = []
                     doc = None
                     self.useless_docs.append(doc_idx)
@@ -854,10 +960,11 @@ class bert_dataset(data.Dataset):
                 token_types[i] = [token_types[i][0]] + token_types[i] + [token_types[i][0]]
                 token_types[i], _ = self.pad_seq(token_types[i])
                 for k in token_labels.keys():
-                    token_labels[k][i] = [0.] + token_types[i] + [0.]
+                    token_labels[k][i] = [0.] + token_labels[k][i] + [0.]
                     token_labels[k][i], _ = self.pad_seq(token_labels[k][i])
 
-                cand_indices += [[idx + 1 for idx in range(len(tokens[i]))]]
+                cand_indices += [[idx + 1 for idx in range(len(tokens[i]) - 1)]]
+            
         output = [[] for _ in range(len(tokens))]
         output_tokens = [[] for _ in range(len(tokens))]
         mask = [[] for _ in range(len(tokens))]

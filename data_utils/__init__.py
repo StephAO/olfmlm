@@ -108,7 +108,7 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
     ds.SetTokenizer(tokenizer)
     # Split dataset into train/val/test (and wrap bert dataset)
     if should_split(split):
-        ds = split_ds(ds, split)
+        ds = split_ds(ds, split, shuffle=False)
         if ds_type.lower() == 'bert':
             presplit_sentences = kwargs['presplit_sentences'] if 'presplit_sentences' in kwargs else False
             ds = [ds_subtype(d, max_seq_len=seq_length, presplit_sentences=presplit_sentences) for d in ds]

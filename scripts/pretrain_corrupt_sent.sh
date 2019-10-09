@@ -26,6 +26,6 @@ python3 sentence_encoders/pretrain_bert.py \
     --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
     --save /scratch/gobi1/stephaneao/trained_berts/corrupt_tok/ \
-    --model-type 'corrupt_tok' \
-    --modes 'mlm,corrupt_tok' \
+    --model-type 'corrupt_sent' \
+    --modes 'mlm,corrupt_sent' \
     --track-results True

@@ -93,7 +93,7 @@ class Bert(PreTrainedBertModel):
         if "sd" in modes:
             self.sent["sd"] = BertSentHead(config, num_classes=3)
         if "so" in modes:
-            self.sent["so"] = BertSentHead(config, num_classes=6)
+            self.sent["so"] = BertSentHead(config, num_classes=2)
         if "corrupt_sent" in modes:
             self.sent["corrupt_sent"] = BertSentHead(config, num_classes=2)
         if "cap" in modes:
@@ -143,7 +143,6 @@ class Bert(PreTrainedBertModel):
             scores["corrupt_sent"] = self.sent["corrupt_sent"](pooled_output)
         if "corrupt_tok" in modes:
             scores["corrupt_tok"] = self.tok["corrupt_tok"](sequence_output)
-        if
         return scores
 
     def cosine_similarity(self, a, b):
