@@ -538,6 +538,12 @@ class bert_dataset(data.Dataset):
             self.target_seq_length = int(self.max_seq_len / 2)
             self.concat = True
             self.task_id = 1
+        if "psp" in self.modes:  # Next Sentence Prediction Data
+            self.split_percent = 2. / 3.
+            self.num_sent_per_seq = 2
+            self.target_seq_length = int(self.max_seq_len / 2)
+            self.concat = True
+            self.task_id = 1
         if "sd" in self.modes: # Sentence Distance Data
             self.split_percent = 1. / 3.
             self.num_sent_per_seq = 2
@@ -546,7 +552,7 @@ class bert_dataset(data.Dataset):
             self.task_id = 1
             self.shuffle = True
         if "so" in self.modes: # Sentence Re-ordering Data
-            self.split_percent = 0.0
+            self.split_percent = 1.0
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / self.num_sent_per_seq)
             self.concat = True
@@ -601,40 +607,57 @@ class bert_dataset(data.Dataset):
         token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
         # either split or corrupt not both
         #assert self.split_percent * self.corruption_rate == 0
+        splits = [self.target_seq_length for _ in range(self.num_sent_per_seq)]
         split = rng.random()
-        if split < self.split_percent: # Split sequence
-            if "nsp" in self.modes:
-                sentence_labels["nsp"] = True
-            if "sd" in self.modes:
-                sentence_labels["sd"] = 0
-            tokens = []
-            for i in range(self.num_sent_per_seq):
-                tok, tok_types, tok_labels = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
-                tokens.append(tok) 
-                [token_labels[k].append(v) for k, v in tok_labels.items()]
-            if self.shuffle:
-                rng.shuffle(tokens)
-            token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
-        elif split < self.split_percent * 2: # Contiguous sequence
-            if "nsp" in self.modes:
-                sentence_labels["nsp"] = False
-            if "sd" in self.modes:
-                sentence_labels["sd"] = 1
-            tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * 2.5, rng,
-                                                    splits=[self.target_seq_length, self.target_seq_length],
-                                                    shuffle=self.shuffle)
-        else: # Same document, non-contiguous
-            sentence_labels["sd"] = 2
-            splits = [self.target_seq_length for _ in range(self.num_sent_per_seq)]
-            tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + 1),
-                                                    rng, splits=splits, non_contiguous=bool("sd" in self.modes),
-                                                    shuffle=self.shuffle)
+        if self.num_sent_per_seq == 1:
+            tok, tok_types, tok_labels = self.get_sentence(self.target_seq_length, rng, sentence_num=0)
+            tokens, token_labels = [tok], [tok_labels]
+            [token_labels[k].append(v) for k, v in tok_labels.items()]
+
+        elif split <= self.split_percent: # Contiguous sequence
+            tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + .5),
+                                                                  rng, splits=splits, shuffle=self.shuffle)
+            sentence_labels["nsp"] = True
+            sentence_labels["sd"] = 0
             if "so" in self.modes:
-                sentence_labels["so"] = rng.randint(0, 5)
+                sentence_labels["so"] = rng.randint(0, len(self.permutations))
                 x = self.permutations[sentence_labels["so"]]
                 tokens = [tokens[x[0]], tokens[x[1]], tokens[x[2]]]
                 token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in
                                range(len(tokens))]
+            if "psp" in self.modes:
+                if rng.random() < 0.5:
+                    sentence_labels["psp"] = 0  # Next sentence
+                else:
+                    sentence_labels["psp"] = 1  # Previous sentence
+                    assert len(tokens) == 2
+                    tokens[0], tokens[1] = tokens[1], tokens[0]
+
+        elif self.split_percent * 2 < 1 and split <= self.split_percent * 2: # Same document, non-contiguous
+            tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + 1),
+                                                    rng, splits=splits, non_contiguous=True,
+                                                    shuffle=self.shuffle)
+            sentence_labels["sd"] = 1
+            if "psp" in self.modes:
+                if rng.random() < 0.5:
+                    sentence_labels["psp"] = 3 # Same document after
+                else:
+                    sentence_labels["psp"] = 4 # Same document before
+                    assert len(tokens) == 2
+                    tokens[0], tokens[1] = tokens[1], tokens[0]
+        else: # Different document
+            tokens = []
+            for i in range(self.num_sent_per_seq):
+                tok, tok_types, tok_labels = self.get_sentence(self.target_seq_length, rng, sentence_num=i)
+                tokens.append(tok)
+                [token_labels[k].append(v) for k, v in tok_labels.items()]
+            if self.shuffle:
+                rng.shuffle(tokens)
+            token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
+
+            sentence_labels["nsp"] = False
+            sentence_labels["sd"] = 2
+            sentence_labels["psp"] = 2
 
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
@@ -775,46 +798,19 @@ class bert_dataset(data.Dataset):
             output.append(char)
         return "".join(output)
 
-    def get_word_labels_2(self, sent, doc_idx):
-        labels = {}
-        tokens = self.tokenizer.text_tokenizer.tokenize(sent)
-        ids = self.tokenizer.text_tokenizer.convert_tokens_to_ids(tokens) 
-        sent = self.run_strip_accents(sent)
-        if "cap" in self.modes:
-            labels["cap"] = self.get_caps(sent, tokens)
-        if "wlen" in self.modes:
-            labels["wlen"] = [len(w.strip("#")) for w in tokens]
-        if "tf" in self.modes or "tf_idf" in self.modes:
-            arch_idx = int(doc_idx / self.bin_size)
-            if doc_idx not in self.tf_archives[arch_idx]:
-                self.tf_archives[arch_idx].load(doc_idx)
-            if doc_idx not in self.tf_archives[arch_idx]:
-                print("OH SHIT", doc_idx, arch_idx, self.tf_archives[arch_idx])
-            for tok in ids:
-                if tok not in self.tf_archives[arch_idx][doc_idx]:
-                    print(doc_idx, tok, self.tf_archives[arch_idx][doc_idx].keys())
-                    self.tf_archives[arch_idx][doc_idx][tok] = 0
-        
-            labels["tf"] = [self.tf_archives[arch_idx][doc_idx].get(tok, 0) for tok in ids]
-            if "tf_idf" in self.modes:
-                idf = [self.idf_archive[tok] for tok in ids]
-                #assert len(tf) == len(idf)
-                #assert len(capitalized) == len(tokens)
-                labels["tf_idf"] = [labels["tf"][i] * idf[i] for i in range(len(tokens))]
-        return labels
-
     def get_tf(self, sent, doc):
         tf = {}
         for word in doc:   
             tf[word] = tf.get(word, 0) + 1
-        _min = min(tf.values())
-        _max = max(tf.values())
+        tf = [tf[w] for w in sent]
+        return tf
+
+    def scale(self, vector):
         scale = 10
         scaling = lambda x: ((scale - 1) * (x - _min) / (_max - _min + 1e-8)) + 1
-        reg_tf = [scaling(tf[w]) for w in sent]
-        #print(sent, reg_tf, tf)
-        self._all_tf.extend(reg_tf)
-        return reg_tf
+        _min = min(vector.values())
+        _max = max(vector.values())
+        return [scaling[w] for w in vector]
 
     def get_word_labels(self, sent, doc):
         labels = {}
@@ -827,9 +823,14 @@ class bert_dataset(data.Dataset):
             labels["wlen"] = [len(w.strip("#")) for w in tokens]
         if "tf" in self.modes or "tf_idf" in self.modes:
             doc_tokens = self.tokenizer.text_tokenizer.tokenize(" ".join(doc)) 
-            labels["tf"] = self.get_tf(tokens, doc_tokens)
+            tf = self.get_tf(tokens, doc_tokens)
             idf = [self.idf_archive[tok] for tok in ids]
-            labels["tf_idf"] = [labels["tf"][i] * idf[i] for i in range(len(tokens))]
+            tf_idf = [tf[i] * idf[i] for i in range(len(tokens))]
+            if "tf" in self.modes:
+                labels["tf"] = self.scale(tf)
+            elif "tf_ids" in self.modes:
+                labels["tf_df"] = self.scale(tf_idf)
+
         return labels
 
     def get_sentence(self, target_seq_length, rng, sentence_num=0, splits=None, non_contiguous=False, shuffle=False):
