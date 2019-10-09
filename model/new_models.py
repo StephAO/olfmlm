@@ -90,6 +90,8 @@ class Bert(PreTrainedBertModel):
         self.tok = torch.nn.ModuleDict()
         if "nsp" in modes:
             self.sent["nsp"] = BertSentHead(config, num_classes=2)
+        if "psp" in modes:
+            self.sent["psp"] = BertSentHead(config, num_classes=3)
         if "sd" in modes:
             self.sent["sd"] = BertSentHead(config, num_classes=3)
         if "so" in modes:
@@ -106,6 +108,8 @@ class Bert(PreTrainedBertModel):
             self.tok["tf_idf"] = BertTokenHead(config, num_classes=1)
         if "corrupt_tok" in modes:
             self.tok["corrupt_tok"] = BertTokenHead(config, num_classes=2)
+        # if "rg" in modes or "fs" in modes:
+        #     self.sig_dot =
         self.apply(self.init_bert_weights)
 
     def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
@@ -123,6 +127,8 @@ class Bert(PreTrainedBertModel):
             scores["mlm"] = self.lm(sequence_output)
         if "nsp" in modes:
             scores["nsp"] = self.sent["nsp"](pooled_output)
+        if "psp" in modes:
+            scores["psp"] = self.sent["psp"](pooled_output)
         if "sd" in modes:
             scores["sd"] = self.sent["sd"](pooled_output)
         if "so" in modes:
@@ -130,7 +136,14 @@ class Bert(PreTrainedBertModel):
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
-            scores["rg"] = self.cosine_similarity(send_emb, recv_emb)
+            scores["rg"] = torch.sigmoid(self.torch.mm(send_emb, recv_emb.transpose(0, 1)))
+        if "fs" in modes:
+            half = len(input_ids[0])
+            prev_emb, next_emb = pooled_output[:half], pooled_output[half:]
+            prev_words, next_words = sequence_output[:half], sequence_output[half:]
+            s1 = torch.sigmoid(torch.bmm(next_words, prev_emb[:, :, None]))
+            s2 = torch.sigmoid(torch.bmm(prev_words, next_emb[:, :, None]))
+            scores["fs"] = torch.cat((s1, s2), dim=1).squeeze()
         if "cap" in modes:
             scores["cap"] = self.tok["cap"](sequence_output)
         if "wlen" in modes:

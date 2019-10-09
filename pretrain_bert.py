@@ -157,7 +157,9 @@ def forward_step(data, model, criterion, modes, args):
 
     tokens, types, tasks, aux_labels, loss_mask, lm_labels, att_mask, num_tokens = batch
     if "rg" in modes:
-        sentence_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
+        aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
+    if "fs" in modes:
+        aux_labels['fs'] = torch.autograd.Variable(torch.ones(args.batch_size * 2 * args.seq_length * 2).long()).cuda()
     # Forward model.
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
     assert list(scores.keys()) == modes

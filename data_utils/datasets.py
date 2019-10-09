@@ -582,8 +582,9 @@ class bert_dataset(data.Dataset):
                                               self.max_preds_per_seq, self.vocab_words, rng, self.concat,
                                               do_not_mask_tokens=corrupted_ids)
         num_tokens = nested_list_len(tokens)
-        aux_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in sentence_labels.items()}
-        aux_labels.update({k: np.array(v) for k, v in token_labels.items()})
+        aux_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in sentence_labels.items()
+                      if k in self.modes}
+        aux_labels.update({k: np.array(v) for k, v in token_labels.items() if k in self.modes})
         sample = {'aux_labels': aux_labels, 'n': len(output),'num_tokens': num_tokens}
         for i in range(len(output)):
             tokens, token_types = output[i]
@@ -611,7 +612,7 @@ class bert_dataset(data.Dataset):
         split = rng.random()
         if self.num_sent_per_seq == 1:
             tok, tok_types, tok_labels = self.get_sentence(self.target_seq_length, rng, sentence_num=0)
-            tokens, token_labels = [tok], [tok_labels]
+            tokens, token_types = [tok], [tok_types]
             [token_labels[k].append(v) for k, v in tok_labels.items()]
 
         elif split <= self.split_percent: # Contiguous sequence
@@ -622,9 +623,9 @@ class bert_dataset(data.Dataset):
             if "so" in self.modes:
                 sentence_labels["so"] = rng.randint(0, len(self.permutations))
                 x = self.permutations[sentence_labels["so"]]
-                tokens = [tokens[x[0]], tokens[x[1]], tokens[x[2]]]
-                token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in
-                               range(len(tokens))]
+                tokens = [tokens[x[0]], tokens[x[1]]]#, tokens[x[2]]]
+                token_types = [token_types[x[0]], token_types[x[1]]]
+                token_labels = [token_labels[x[0]], token_labels[x[1]]]
             if "psp" in self.modes:
                 if rng.random() < 0.5:
                     sentence_labels["psp"] = 0  # Next sentence
@@ -808,9 +809,9 @@ class bert_dataset(data.Dataset):
     def scale(self, vector):
         scale = 10
         scaling = lambda x: ((scale - 1) * (x - _min) / (_max - _min + 1e-8)) + 1
-        _min = min(vector.values())
-        _max = max(vector.values())
-        return [scaling[w] for w in vector]
+        _min = min(vector)
+        _max = max(vector)
+        return [scaling(w) for w in vector]
 
     def get_word_labels(self, sent, doc):
         labels = {}
