@@ -24,9 +24,8 @@ python3 sentence_encoders/pretrain_bert.py \
     --clip-grad 1.0 \
     --num-workers 2 \
     --epochs 2 \
-    --bert-config-file /h/stephaneao/trained_berts/config_file.json \
-    --bert-small-config-file /h/stephaneao/sentence-encoders/bert_small_config.json \
-    --save /scratch/gobi1/stephaneao/trained_berts/referential_game/ \
-    --model-type 'referential_game' \
+    --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
+    --save /scratch/gobi2/stephaneao/trained_berts/rg/ \
+    --model-type 'rg' \
     --modes 'mlm,rg' \
     --track-results True

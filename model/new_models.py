@@ -136,14 +136,19 @@ class Bert(PreTrainedBertModel):
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
-            scores["rg"] = torch.sigmoid(self.torch.mm(send_emb, recv_emb.transpose(0, 1)))
+            scores["rg"] = self.inner_product(send_emb, recv_emb)
+            
+            print(self.cosine_similarity(send_emb, recv_emb))
+            #print(scores["rg"])
         if "fs" in modes:
             half = len(input_ids[0])
             prev_emb, next_emb = pooled_output[:half], pooled_output[half:]
             prev_words, next_words = sequence_output[:half], sequence_output[half:]
             s1 = torch.sigmoid(torch.bmm(next_words, prev_emb[:, :, None]))
             s2 = torch.sigmoid(torch.bmm(prev_words, next_emb[:, :, None]))
-            scores["fs"] = torch.cat((s1, s2), dim=1).squeeze()
+            sim = torch.cat((s1, s2), dim=1).squeeze().view(-1)
+            ref = torch.zeros_like(sim)
+            scores["fs"] = torch.stack((ref, sim), dim=1)
         if "cap" in modes:
             scores["cap"] = self.tok["cap"](sequence_output)
         if "wlen" in modes:
@@ -163,3 +168,6 @@ class Bert(PreTrainedBertModel):
         a_norm = a / a.norm(dim=1)[:, None]
         b_norm = b / b.norm(dim=1)[:, None]
         return torch.mm(a_norm, b_norm.transpose(0, 1))
+
+    def inner_product(self, a, b):
+        return torch.mm(a, b.transpose(0, 1))

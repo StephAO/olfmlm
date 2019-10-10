@@ -159,7 +159,7 @@ def forward_step(data, model, criterion, modes, args):
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     if "fs" in modes:
-        aux_labels['fs'] = torch.autograd.Variable(torch.ones(args.batch_size * 2 * args.seq_length * 2).long()).cuda()
+        aux_labels['fs'] = torch.autograd.Variable(torch.ones(args.batch_size * 2 * args.seq_length).long()).cuda()
     # Forward model.
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
     assert list(scores.keys()) == modes
@@ -254,17 +254,17 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     while tot_tokens < max_tokens:
         # TODO set mode
         while True:
-            try:
-                losses, skipped_iter, num_tokens = train_step(next(data_iters),
-                              model,
-                              criterion,
-                              optimizer,
-                              lr_scheduler,
-                              modes,
-                              args)
-                break
-            except TypeError:
-                print("Ooops, continuing")
+            #try:
+            losses, skipped_iter, num_tokens = train_step(next(data_iters),
+                          model,
+                          criterion,
+                          optimizer,
+                          lr_scheduler,
+                          modes,
+                          args)
+            break
+            #except TypeError:
+                #print("Ooops, continuing")
 
         tokens += num_tokens
         skipped_iters += skipped_iter

@@ -558,7 +558,7 @@ class bert_dataset(data.Dataset):
             self.concat = True
             self.task_id = 1
             self.shuffle = False
-        if "rg" in self.modes: # Referential Game Data
+        if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
             self.num_sent_per_seq = 2
             self.task_id = 1
         if "corrupt_sent" in self.modes or "corrupt_tok" in self.modes: # Corrupt Data
@@ -621,11 +621,12 @@ class bert_dataset(data.Dataset):
             sentence_labels["nsp"] = True
             sentence_labels["sd"] = 0
             if "so" in self.modes:
-                sentence_labels["so"] = rng.randint(0, len(self.permutations))
+                sentence_labels["so"] = rng.randint(0, len(self.permutations) - 1)
                 x = self.permutations[sentence_labels["so"]]
                 tokens = [tokens[x[0]], tokens[x[1]]]#, tokens[x[2]]]
-                token_types = [token_types[x[0]], token_types[x[1]]]
-                token_labels = [token_labels[x[0]], token_labels[x[1]]]
+                token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
+                if len(token_labels) > 1:
+                    token_labels = [token_labels[x[0]], token_labels[x[1]]]
             if "psp" in self.modes:
                 if rng.random() < 0.5:
                     sentence_labels["psp"] = 0  # Next sentence
@@ -633,6 +634,7 @@ class bert_dataset(data.Dataset):
                     sentence_labels["psp"] = 1  # Previous sentence
                     assert len(tokens) == 2
                     tokens[0], tokens[1] = tokens[1], tokens[0]
+                    token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
 
         elif self.split_percent * 2 < 1 and split <= self.split_percent * 2: # Same document, non-contiguous
             tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + 1),
@@ -646,6 +648,7 @@ class bert_dataset(data.Dataset):
                     sentence_labels["psp"] = 4 # Same document before
                     assert len(tokens) == 2
                     tokens[0], tokens[1] = tokens[1], tokens[0]
+                    token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
         else: # Different document
             tokens = []
             for i in range(self.num_sent_per_seq):
@@ -807,6 +810,8 @@ class bert_dataset(data.Dataset):
         return tf
 
     def scale(self, vector):
+        if len(vector) == 0:
+            return vector
         scale = 10
         scaling = lambda x: ((scale - 1) * (x - _min) / (_max - _min + 1e-8)) + 1
         _min = min(vector)
@@ -829,8 +834,8 @@ class bert_dataset(data.Dataset):
             tf_idf = [tf[i] * idf[i] for i in range(len(tokens))]
             if "tf" in self.modes:
                 labels["tf"] = self.scale(tf)
-            elif "tf_ids" in self.modes:
-                labels["tf_df"] = self.scale(tf_idf)
+            elif "tf_idf" in self.modes:
+                labels["tf_idf"] = self.scale(tf_idf)
 
         return labels
 
