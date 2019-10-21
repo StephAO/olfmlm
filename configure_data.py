@@ -64,7 +64,7 @@ def make_data_loader(dataset, batch_size, args):
                                                       batch_size,
                                                       drop_last)
 
-    data_loader = torch.utils.data.DataLoader(dataset,
+    data_loader = torch.utils.data.dataloader.DataLoader(dataset,
                                               batch_sampler=batch_sampler,
                                               num_workers=args.num_workers,
                                               pin_memory=True)

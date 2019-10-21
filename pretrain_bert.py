@@ -151,7 +151,6 @@ def get_batch(data):
 def forward_step(data, model, criterion, modes, args):
     """Forward step."""
     criterion_cls, criterion_reg = criterion
-
     # Get the batch.
     batch = get_batch(data)
 
@@ -252,19 +251,18 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     timers('interval time').start()
     while tot_tokens < max_tokens:
-        # TODO set mode
         while True:
-            #try:
-            losses, skipped_iter, num_tokens = train_step(next(data_iters),
-                          model,
-                          criterion,
-                          optimizer,
-                          lr_scheduler,
-                          modes,
-                          args)
-            break
-            #except TypeError:
-                #print("Ooops, continuing")
+            try:
+                losses, skipped_iter, num_tokens = train_step(next(data_iters),
+                              model,
+                              criterion,
+                              optimizer,
+                              lr_scheduler,
+                              modes,
+                              args)
+                break
+            except (TypeError, RuntimeError) as e:
+                print("Ooops, caught: '{}', continuing...".format(e))
 
         tokens += num_tokens
         skipped_iters += skipped_iter
@@ -315,7 +313,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
     """Evaluation."""
-
+    import time
     # Turn on evaluation mode which disables dropout.
     model.eval()
 
@@ -325,7 +323,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     modes = args.modes.split(',')
     data_source.dataset.set_args(modes, 0)
     data_iters = iter(data_source)
-
+    start_time = time.time()
     with torch.no_grad():
         iteration = 0
         while tokens < max_tokens:
@@ -335,8 +333,8 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
                 try:
                     losses, num_tokens = forward_step(next(data_iters), model, criterion, modes, args)
                     break
-                except TypeError:
-                    print("Ooops, continuing evaluation")
+                except (TypeError, RuntimeError) as e:
+                    print("Ooops, caught: '{}', continuing".format(e))
 
             tokens += num_tokens
             # Reduce across processes.
@@ -354,6 +352,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
             for mode, loss in losses.items():
                 total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float().item()
             iteration += 1
+            #print("Done iteration", iteration, time.time() - start_time)
 
     print("Evaluated using {} tokens over {} iterations.".format(tokens, iteration))
 

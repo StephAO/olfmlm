@@ -86,7 +86,7 @@ def add_training_args(parser):
                        help='gradient clipping')
     group.add_argument('--epochs', type=int, default=1,
                        help='upper epoch limit')
-    group.add_argument('--log-interval', type=int, default=50000,
+    group.add_argument('--log-interval', type=int, default=100000,
                        help='report interval')
     group.add_argument('--train-iters', type=int, default=1000000,
                        help='number of iterations per epoch')
@@ -164,7 +164,7 @@ def add_evaluation_args(parser):
     group.add_argument('--eval-iters', type=int, default=2000,
                        help='number of iterations per epoch to run '
                        'validation/test for')
-    group.add_argument('--eval-tokens', type=int, default=5000000,
+    group.add_argument('--eval-tokens', type=int, default=50000, #00,
                        help='number of tokens per epoch to run '
                        'validation/test for')
     group.add_argument('--eval-seq-length', type=int, default=None,

@@ -22,10 +22,10 @@ python3 sentence_encoders/pretrain_bert.py \
     --warmup .01 \
     --weight-decay 1e-2 \
     --clip-grad 1.0 \
-    --num-workers 1 \
+    --num-workers 2 \
     --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
-    --save /scratch/gobi1/stephaneao/trained_berts/corrupt_tok/ \
+    --save /scratch/gobi2/stephaneao/trained_berts/corrupt_sent/ \
     --model-type 'corrupt_sent' \
     --modes 'mlm,corrupt_sent' \
     --track-results True
