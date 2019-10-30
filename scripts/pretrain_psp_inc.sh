@@ -9,7 +9,7 @@ python3 sentence_encoders/pretrain_bert.py \
     --cache-dir cache_dir \
     --tokenizer-model-type bert-base-uncased \
     --vocab-size 30522 \
-    --train-data 'wikipedia' \
+    --train-data wikipedia \
     --presplit-sentences \
     --text-key text \
     --split 1000,1,1 \
@@ -22,11 +22,11 @@ python3 sentence_encoders/pretrain_bert.py \
     --warmup .01 \
     --weight-decay 1e-2 \
     --clip-grad 1.0 \
-    --num-workers 2 \
+    --num-workers 1 \
     --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
-    --save /scratch/gobi2/stephaneao/trained_berts/bert/ \
-    --model-type 'bert' \
-    --modes 'mlm,nsp' \
-    --incremental False \
+    --save /scratch/gobi2/stephaneao/trained_berts/psp_inc/ \
+    --model-type 'psp_inc' \
+    --modes 'mlm,psp' \
+    --incremental True \
     --track-results True

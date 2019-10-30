@@ -16,22 +16,43 @@
 from sentence_encoders.data_utils.datasets import json_dataset, csv_dataset
 
 class wikipedia(json_dataset):
-	"""
-	dataset for wikipedia with arguments configured for convenience
+    """
+    dataset for wikipedia with arguments configured for convenience
 
-	command line usage: `--train-data wikipedia`
-	"""
-	PATH = '/scratch/gobi1/datasets/NLP-Corpus/wikipedia_version2/wikipedia_sentences.json'
-	assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
-	def __init__(self, **kwargs):
-		assert wikipedia.PATH != '<wikipedia_path>', \
-                                         wikipedia.assert_str
-		if not kwargs:
-			kwargs = {}
-		kwargs['text_key'] = 'text'
-		kwargs['loose_json'] = True
-		super(wikipedia, self).__init__(wikipedia.PATH, **kwargs)
+    command line usage: `--train-data wikipedia`
+    """
+    PATH = '/scratch/gobi1/datasets/NLP-Corpus/wikipedia_version2/wikipedia_sentences.json'
+    assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
+    def __init__(self, **kwargs):
+        assert wikipedia.PATH != '<wikipedia_path>', \
+                                 wikipedia.assert_str
+        if not kwargs:
+            kwargs = {}
+        kwargs['text_key'] = 'text'
+        kwargs['loose_json'] = True
+        print("????")
+        super(wikipedia, self).__init__(wikipedia.PATH, **kwargs)
+
+
+class bookcorpus(json_dataset):
+    """
+    dataset for wikipedia with arguments configured for convenience
+
+    command line usage: `--train-data wikipedia`
+    """
+    PATH = '/scratch/gobi1/datasets/NLP-Corpus/bookcorpus/bookcorpus.lazy'
+    assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
+    def __init__(self, **kwargs):
+        assert bookcorpus.PATH != '<bookcorpus_path>', \
+                                   bookcorpus.assert_str
+        if not kwargs:
+            kwargs = {}
+        kwargs['text_key'] = 'text'
+        kwargs['loose_json'] = True
+        super(bookcorpus, self).__init__(bookcorpus.PATH, **kwargs)
+
 
 NAMED_CORPORA = {
-	'wikipedia': wikipedia,
+    'wikipedia': wikipedia,
+    'bookcorpus': bookcorpus
 }

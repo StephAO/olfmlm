@@ -9,7 +9,7 @@ python3 sentence_encoders/pretrain_bert.py \
     --cache-dir cache_dir \
     --tokenizer-model-type bert-base-uncased \
     --vocab-size 30522 \
-    --train-data wikipedia \
+    --train-data bookcorpus \
     --presplit-sentences \
     --text-key text \
     --split 1000,1,1 \

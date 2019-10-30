@@ -4,12 +4,12 @@ RANK=0
 WORLD_SIZE=1
 
 python3 sentence_encoders/pretrain_bert.py \
-    --batch-size 32 \
+    --batch-size 16 \
     --tokenizer-type BertWordPieceTokenizer \
     --cache-dir cache_dir \
     --tokenizer-model-type bert-base-uncased \
     --vocab-size 30522 \
-    --train-data 'wikipedia' \
+    --train-data wikipedia \
     --presplit-sentences \
     --text-key text \
     --split 1000,1,1 \
@@ -25,8 +25,7 @@ python3 sentence_encoders/pretrain_bert.py \
     --num-workers 2 \
     --epochs 2 \
     --bert-config-file /h/stephaneao/sentence_encoders/bert_config.json \
-    --save /scratch/gobi2/stephaneao/trained_berts/bert/ \
-    --model-type 'bert' \
-    --modes 'mlm,nsp' \
-    --incremental False \
+    --save /scratch/gobi2/stephaneao/trained_berts/fs/ \
+    --model-type 'fs' \
+    --modes 'mlm,fs' \
     --track-results True

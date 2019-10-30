@@ -73,7 +73,9 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
         if lazy:
             # get lazily loaded dataset
             named_corpora = False
+            print("====>", path_)
             if supported_corpus(path_):
+                print(">?")
                 named_corpora = True
                 name = path_
                 path_ = corpora.NAMED_CORPORA[path_].PATH

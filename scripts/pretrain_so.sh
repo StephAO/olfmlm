@@ -16,7 +16,8 @@ python3 sentence_encoders/pretrain_bert.py \
     --lazy-loader \
     --max-preds-per-seq 80 \
     --seq-length 128 \
-    --train-tokens 500000000 \
+    --train-tokens 5000 \
+    --eval-tokens 500000 \
     --lr 0.0001 \
     --lr-decay-style linear \
     --warmup .01 \
