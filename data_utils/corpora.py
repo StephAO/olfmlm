@@ -15,13 +15,16 @@
 """several datasets with preset arguments"""
 from sentence_encoders.data_utils.datasets import json_dataset, csv_dataset
 
+from sentence_encoders.paths import train_data_path
+import os
+
 class wikipedia(json_dataset):
     """
     dataset for wikipedia with arguments configured for convenience
 
     command line usage: `--train-data wikipedia`
     """
-    PATH = '/scratch/gobi1/datasets/NLP-Corpus/wikipedia_version2/wikipedia_sentences.json'
+    PATH = os.path.join(train_data_path, "wikipedia_sentences.lazy")
     assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
     def __init__(self, **kwargs):
         assert wikipedia.PATH != '<wikipedia_path>', \
@@ -30,7 +33,6 @@ class wikipedia(json_dataset):
             kwargs = {}
         kwargs['text_key'] = 'text'
         kwargs['loose_json'] = True
-        print("????")
         super(wikipedia, self).__init__(wikipedia.PATH, **kwargs)
 
 
@@ -40,7 +42,7 @@ class bookcorpus(json_dataset):
 
     command line usage: `--train-data wikipedia`
     """
-    PATH = '/scratch/gobi1/datasets/NLP-Corpus/bookcorpus/bookcorpus.lazy'
+    PATH = os.path.join(train_data_path, "bookcorpus.lazy")
     assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
     def __init__(self, **kwargs):
         assert bookcorpus.PATH != '<bookcorpus_path>', \
@@ -52,7 +54,44 @@ class bookcorpus(json_dataset):
         super(bookcorpus, self).__init__(bookcorpus.PATH, **kwargs)
 
 
+class gutenberg(json_dataset):
+    """
+    dataset for wikipedia with arguments configured for convenience
+
+    command line usage: `--train-data wikipedia`
+    """
+    PATH = os.path.join(train_data_path, "Gutenberg.lazy")
+    assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
+    def __init__(self, **kwargs):
+        assert gutenberg.PATH != '<gutenberg>', gutenberg.assert_str
+        if not kwargs:
+            kwargs = {}
+        kwargs['text_key'] = 'text'
+        kwargs['loose_json'] = True
+        super(gutenberg, self).__init__(gutenberg.PATH, **kwargs)
+
+
+class cnn_dailymail(json_dataset):
+    """
+    dataset for wikipedia with arguments configured for convenience
+
+    command line usage: `--train-data wikipedia`
+    """
+    PATH = os.path.join(train_data_path, "cnn_dailymail.lazy")
+    assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
+    def __init__(self, **kwargs):
+        assert bookcorpus.PATH != '<cnn_dailymail>', cnn_dailymail.assert_str
+        if not kwargs:
+            kwargs = {}
+        kwargs['text_key'] = 'text'
+        kwargs['loose_json'] = True
+        super(cnn_dailymail, self).__init__(cnn_dailymail.PATH, **kwargs)
+
+
+
 NAMED_CORPORA = {
     'wikipedia': wikipedia,
-    'bookcorpus': bookcorpus
+    'bookcorpus': bookcorpus,
+    'cnn_dailymail': cnn_dailymail,
+    'gutenberg': gutenberg
 }

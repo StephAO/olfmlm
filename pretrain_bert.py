@@ -75,7 +75,7 @@ def get_learning_rate_scheduler(optimizer, args):
     if args.lr_decay_iters is not None:
         num_iters = args.lr_decay_iters
     else:
-        num_iters = args.train_tokens * args.epochs  / (args.seq_length * 0.625 * args.batch_size)
+        num_iters = args.train_tokens * args.epochs
     init_step = -1
     warmup_iter = args.warmup * num_iters
     lr_scheduler = AnnealingLR(optimizer,
@@ -218,7 +218,6 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     optimizer.step()
     # Update learning rate.
     skipped_iter = 0
-    lr_scheduler.step()
     return losses_reduced, skipped_iter, num_tokens
 
 
@@ -233,7 +232,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     # Iterations.
     max_tokens = args.train_tokens
-    tokens = 0
+    log_tokens = 0
     tot_tokens = 0
     iteration = 0
     tot_iteration = 0
@@ -264,7 +263,9 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             except (TypeError, RuntimeError) as e:
                 print("Ooops, caught: '{}', continuing...".format(e))
 
-        tokens += num_tokens
+        log_tokens += num_tokens
+        tot_tokens += num_tokens
+        lr_scheduler.step(step_num=(epoch-1) * max_tokens + tot_tokens)
         skipped_iters += skipped_iter
         iteration += 1
         # Update losses.
@@ -272,9 +273,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float()
 
         # Logging.
-        if tokens > args.log_interval:
-            tot_tokens += tokens
-            tokens = 0
+        if log_tokens > args.log_interval:
+            log_tokens = 0
             learning_rate = optimizer.param_groups[0]['lr']
             avg_loss = {}
             for mode, v in total_losses.items():

@@ -69,8 +69,6 @@ class BertEmbedderModule(nn.Module):
     def __init__(self, args, cache_dir=None):
         super(BertEmbedderModule, self).__init__()
 
-        self.two_models = args.two_models
-
         if args.bert_use_pretrain:
             self.model = BertModel.from_pretrained(
                 args.input_module, cache_dir=cache_dir
@@ -78,8 +76,6 @@ class BertEmbedderModule(nn.Module):
         else:
             self.config = BertConfig(args.bert_config_file)
             self.model = BertModel(self.config)
-            if args.two_models:
-                self.model_2 = BertModel(self.config)
         self.embeddings_mode = args.bert_embeddings_mode
 
         tokenizer = BertTokenizer.from_pretrained(
@@ -205,7 +201,7 @@ class BertEmbedderModule(nn.Module):
         return h
 
     def get_output_dim(self):
-        if self.embeddings_mode == "cat" or self.two_models:
+        if self.embeddings_mode == "cat":
             return 2 * self.model.config.hidden_size
         elif self.split:
             return 4 * self.model.config.hidden_size

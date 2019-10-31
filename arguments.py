@@ -18,6 +18,7 @@
 import argparse
 import os
 import torch
+from sentence_encoders.paths import bert_config_file, pretrained_path
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -39,7 +40,7 @@ def add_model_config_args(parser):
                        'of initializing from scratch. See '
                        '--tokenizer-model-type to specify which pretrained '
                        'BERT model to use')
-    group.add_argument('--model-type', type=str, default='bert',
+    group.add_argument('--model-type', type=str, required=True,
                        help="Sentence encoder to use, one of ['bert', ernie'] ")
     group.add_argument('--attention-dropout', type=float, default=0.1,
                        help='dropout probability for attention weights')
@@ -62,8 +63,7 @@ def add_model_config_args(parser):
                        help='vocab size to use for non-character-level '
                        'tokenization. This value will only be used when '
                        'creating a tokenizer')
-    group.add_argument('--bert-config-file', type=str, default=None)
-    group.add_argument('--bert-small-config-file', type=str, default=None)
+    group.add_argument('--bert-config-file', type=str, default=bert_config_file)
 
     return parser
 
@@ -73,18 +73,18 @@ def add_training_args(parser):
     group = parser.add_argument_group('train', 'training configurations')
 
     group.add_argument('--track-results', type=str2bool, nargs='?',
-                        const=True, default=False,
+                        const=True, default=True,
                         help='Tracks results on comet.')
-    group.add_argument('--batch-size', type=int, default=4,
+    group.add_argument('--batch-size', type=int, default=32,
                        help='Data Loader batch size')
-    group.add_argument('--weight-decay', type=float, default=0.01,
+    group.add_argument('--weight-decay', type=float, default=0.02,
                        help='weight decay coefficient for L2 regularization')
     group.add_argument('--checkpoint-activations', action='store_true',
                        help='checkpoint activation to allow for training '
                        'with larger models and sequences')
     group.add_argument('--clip-grad', type=float, default=1.0,
                        help='gradient clipping')
-    group.add_argument('--epochs', type=int, default=1,
+    group.add_argument('--epochs', type=int, default=2,
                        help='upper epoch limit')
     group.add_argument('--log-interval', type=int, default=100000,
                        help='report interval')
@@ -142,7 +142,7 @@ def add_training_args(parser):
     group.add_argument('--local_rank', type=int, default=None,
                        help='local rank passed from distributed launcher')
     # training modes
-    group.add_argument('--modes', default='bert',
+    group.add_argument('--modes', default=None,
                        help='comma separated list of training modes to use in order')
     group.add_argument('--alternating', type=str2bool, nargs='?',
                        const=True, default=False,
@@ -186,12 +186,12 @@ def add_data_args(parser):
     group.add_argument('--shuffle', action='store_true',
                        help='Shuffle data. Shuffling is deterministic '
                        'based on seed and current epoch.')
-    group.add_argument('--train-data', nargs='+', required=True,
+    group.add_argument('--train-data', nargs='+', default=['wikipedia','cnn_dailymail','gutenberg'],
                        help='Filename (or whitespace separated filenames) '
                        'for training.')
     group.add_argument('--delim', default=',',
                        help='delimiter used to parse csv data files')
-    group.add_argument('--text-key', default='sentence',
+    group.add_argument('--text-key', default='text',
                        help='key to use to extract text from json/csv')
     group.add_argument('--eval-text-key', default=None,
                        help='key to use to extract text from '
@@ -204,19 +204,19 @@ def add_data_args(parser):
     group.add_argument('--test-data', nargs='*', default=None,
                        help="""Filename for testing""")
 
-    group.add_argument('--lazy-loader', action='store_true',
+    group.add_argument('--lazy-loader', default=True,
                        help='whether to lazy read the data set')
     group.add_argument('--loose-json', action='store_true',
                        help='Use loose json (one json-formatted string per '
                        'newline), instead of tight json (data file is one '
                        'json string)')
-    group.add_argument('--presplit-sentences', action='store_true',
+    group.add_argument('--presplit-sentences', default=True,
                        help='Dataset content consists of documents where '
                        'each document consists of newline separated sentences')
     group.add_argument('--num-workers', type=int, default=2,
                        help="""Number of workers to use for dataloading""")
     group.add_argument('--tokenizer-model-type', type=str,
-                       default='bert-large-uncased',
+                       default='bert-base-uncased',
                        help="Model type to use for sentencepiece tokenization \
                        (one of ['bpe', 'char', 'unigram', 'word']) or \
                        bert vocab to use for BertWordPieceTokenizer (one of \
@@ -230,15 +230,15 @@ def add_data_args(parser):
                                 'SentencePieceTokenizer',
                                 'BertWordPieceTokenizer'],
                        help='what type of tokenizer to use')
-    group.add_argument("--cache-dir", default=None, type=str,
+    group.add_argument("--cache-dir", default="cache_dir", type=str,
                        help="Where to store pre-trained BERT downloads")
     group.add_argument('--use-tfrecords', action='store_true',
                        help='load `--train-data`, `--valid-data`, '
                        '`--test-data` from BERT tf records instead of '
                        'normal data pipeline')
-    group.add_argument('--seq-length', type=int, default=512,
+    group.add_argument('--seq-length', type=int, default=128,
                        help="Maximum sequence length to process")
-    group.add_argument('--max-preds-per-seq', type=int, default=None,
+    group.add_argument('--max-preds-per-seq', type=int, default=80,
                        help='Maximum number of predictions to use per sequence.'
                        'Defaults to math.ceil(`--seq-length`*.15/10)*10.'
                        'MUST BE SPECIFIED IF `--use-tfrecords` is True.')
@@ -265,6 +265,14 @@ def get_args():
     parser = add_data_args(parser)
 
     args = parser.parse_args()
+
+    if args.save is None:
+        args.save = os.path.join(pretrained_path, args.model_type)
+    if args.modes is None:
+        if args.model_type == "mlm":
+            args.modes = "mlm"
+        else:
+            args.modes = "mlm," + args.model_type
 
     args.cuda = torch.cuda.is_available()
     args.rank = int(os.getenv('RANK', '0'))

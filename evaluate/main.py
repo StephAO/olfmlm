@@ -21,6 +21,8 @@ import time
 import copy
 import torch
 
+from ..paths import pretrained_path, finetuned_path, bert_config_file, glue_data_path
+
 from . import evaluate
 from .models import build_model
 from .preprocess import build_tasks
@@ -59,6 +61,14 @@ def handle_arguments(cl_arguments):
         type=str,
         default=None,
         help="Parameter overrides, as valid HOCON string.",
+    )
+
+    parser.add_argument(
+        "--exp_name",
+        "-n",
+        type=str,
+        default=None,
+        help="Name of the experiment (must match folder for loading experiment).",
     )
 
     parser.add_argument(
@@ -454,11 +464,30 @@ def load_model_for_target_train_run(args, ckpt_path, model, strict, task):
         to_train += elmo_scalars
     return to_train
 
+def add_required_args(args, cl_args):
+    if cl_args.exp_name is not None:
+        args.exp_name = cl_args.exp_name
+    if "exp_name" not in args:
+        raise ValueError("Experiment name (--exp_name or in config file) is required")
+
+    args.data_dir = glue_data_path
+    args.project_dir = finetuned_path
+    args.bert_config_file = bert_config_file
+    args.exp_dir = os.path.join(args.project_dir, args.exp_name)
+    args.run_dir = os.path.join(args.exp_dir, args.run_name if "run_name" in args else "tuning")
+    args.local_log_path = os.path.join(args.run_dir, "log.log")
+
+    if "load_target_train_checkpoint" not in args:
+        args.load_target_train_checkpoint = os.path.join(pretrained_path, args.exp_name, "/best/model_converted.pt")
+
+    a
+
 
 def main(cl_arguments):
     """ Train a model for multitask-training."""
     cl_args = handle_arguments(cl_arguments)
     args = config.params_from_file(cl_args.config_file, cl_args.overrides)
+    add_required_args(args, cl_args)
     # Check for deprecated arg names
     check_arg_name(args)
     args, seed = initial_setup(args, cl_args)
