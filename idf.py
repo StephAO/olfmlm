@@ -51,7 +51,7 @@ def work(self_idx):
     word_in_num_docs = {}
     for i in range(int(start_idx), int(end_idx)):
         doc = get_doc(ds_, i)
-        tokens = sentence_tokenize(tokenizer_, doc)
+        tokens = set(sentence_tokenize(tokenizer_, doc))
         for tok in tokens:
             word_in_num_docs[tok] = word_in_num_docs.get(tok, 0) + 1
     print("Finished with bin", self_idx, flush=True)
@@ -61,8 +61,10 @@ def work(self_idx):
 ds, tokenizer = data_utils.make_dataset(**data_set_args)
 
 num_workers = 32
-num_subsets = 1000
+num_subsets = 10000
 bin_size = ceil(len(ds) / (num_subsets))
+
+print("Total size:", len(ds))
 
 start_time = time.time()
 

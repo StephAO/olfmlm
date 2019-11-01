@@ -483,7 +483,7 @@ def main():
     except KeyboardInterrupt:
         print('-' * 100)
         print('Exiting from training early')
-        if args.save:
+        if args.save and False: # WARNING I disabled this to save memory, but may be necessary in the future
             cur_path = 'current/model.pt'
             print('saving current model to:',
                    os.path.join(args.save, cur_path))
@@ -491,7 +491,7 @@ def main():
                             lr_scheduler, args)
         exit()
 
-    if args.save:
+    if args.save and False: # WARNING I disabled this to save memory, but may be necessary in the future
         final_path = 'final/model.pt'
         print('saving final model to:', os.path.join(args.save, final_path))
         save_checkpoint(final_path, args.epochs, total_iters, model, optimizer,

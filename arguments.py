@@ -17,6 +17,7 @@
 
 import argparse
 import os
+import re
 import torch
 from sentence_encoders.paths import bert_config_file, pretrained_path
 
@@ -213,7 +214,7 @@ def add_data_args(parser):
     group.add_argument('--presplit-sentences', default=True,
                        help='Dataset content consists of documents where '
                        'each document consists of newline separated sentences')
-    group.add_argument('--num-workers', type=int, default=2,
+    group.add_argument('--num-workers', type=int, default=None,
                        help="""Number of workers to use for dataloading""")
     group.add_argument('--tokenizer-model-type', type=str,
                        default='bert-base-uncased',
@@ -257,7 +258,6 @@ def print_args(args):
 
 def get_args():
     """Parse all the args."""
-
     parser = argparse.ArgumentParser(description='PyTorch BERT Model')
     parser = add_model_config_args(parser)
     parser = add_training_args(parser)
@@ -273,6 +273,15 @@ def get_args():
             args.modes = "mlm"
         else:
             args.modes = "mlm," + args.model_type
+    if args.model_type in ["rg", "fs"]:
+        args.batch_size = args.batch_size // 2
+    if args.num_workers is None:
+        # Find number of cpus available (taken from second answer):
+        # https://stackoverflow.com/questions/1006289/how-to-find-out-the-number-of-cpus-using-python
+        m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
+                      open('/proc/self/status').read())
+        nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
+        args.num_workers = nw  - 1 # leave 1 cpu for main process
 
     args.cuda = torch.cuda.is_available()
     args.rank = int(os.getenv('RANK', '0'))
