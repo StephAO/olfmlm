@@ -530,7 +530,7 @@ class bert_dataset(data.Dataset):
         assert [x in self.sentence_distances for x in self.modes].count(True) <= 1
         if "mlm" in self.modes: # Masked Language Data
             self.mask_lm_prob = 0.15
-            self.task_id = 1
+            self.task_id = 0
         if "nsp" in self.modes: # Next Sentence Prediction Data
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
@@ -562,7 +562,7 @@ class bert_dataset(data.Dataset):
             self.task_id = 1
         if "corrupt_sent" in self.modes or "corrupt_tok" in self.modes: # Corrupt Data
             self.corruption_rate = 0.50
-            self.task_id = 1
+            self.task_id = 2
 
     def __getitem__(self, idx):
         # TODO keep track of known documents that are too short

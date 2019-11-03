@@ -15,7 +15,7 @@
 
 """Pretrain BERT"""
 
-# from apex import amp
+from apex import amp
 from comet_ml import Experiment
 import os
 import random
@@ -186,10 +186,10 @@ def backward_step(optimizer, model, losses, args):
     """Backward step."""
     # Backward pass.
     optimizer.zero_grad()
-    # with amp.scale_loss(loss, optimizer) as scaled_loss:
-    #     scaled_loss.backward()
     total_loss = sum(losses.values())
-    total_loss.backward()
+    with amp.scale_loss(total_loss, optimizer) as scaled_loss:
+         scaled_loss.backward()
+    #total_loss.backward()
 
     # Reduce across processes.
     losses_reduced = losses

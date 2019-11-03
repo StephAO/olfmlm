@@ -3,7 +3,7 @@
 RANK=0
 WORLD_SIZE=1
 
-python3 sentence_encoders/pretrain_bert.py "$@"
+python3 -m sentence_encoders.pretrain_bert "$@"
 
 
 #    --batch-size 32 \
