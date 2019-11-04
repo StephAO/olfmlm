@@ -15,8 +15,9 @@
 
 """Pretrain BERT"""
 
-from apex import amp
 from comet_ml import Experiment
+
+from apex import amp
 import os
 import random
 import numpy as np
@@ -412,7 +413,7 @@ def main():
 
     print('Pretrain BERT model')
     # Disable CuDNN.
-    torch.backends.cudnn.enabled = False
+    torch.backends.cudnn.enabled = True #False
 
     # Timer.
     timers = Timers()
@@ -443,7 +444,7 @@ def main():
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
 
-    # model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     timers("total time").start()
     # At any point you can hit Ctrl + C to break out of training early.
     try:
