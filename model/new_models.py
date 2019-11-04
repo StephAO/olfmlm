@@ -96,8 +96,8 @@ class Bert(PreTrainedBertModel):
             self.sent["sd"] = BertSentHead(config, num_classes=3)
         if "so" in modes:
             self.sent["so"] = BertSentHead(config, num_classes=2)
-        if "corrupt_sent" in modes:
-            self.sent["corrupt_sent"] = BertSentHead(config, num_classes=2)
+        if "sc" in modes:
+            self.sent["sc"] = BertSentHead(config, num_classes=2)
         if "cap" in modes:
             self.tok["cap"] = BertTokenHead(config, num_classes=2)
         if "wlen" in modes:
@@ -106,8 +106,8 @@ class Bert(PreTrainedBertModel):
             self.tok["tf"] = BertTokenHead(config, num_classes=1)
         if "tf_idf" in modes:
             self.tok["tf_idf"] = BertTokenHead(config, num_classes=1)
-        if "corrupt_tok" in modes:
-            self.tok["corrupt_tok"] = BertTokenHead(config, num_classes=2)
+        if "tc" in modes:
+            self.tok["tc"] = BertTokenHead(config, num_classes=2)
         # if "rg" in modes or "fs" in modes:
         #     self.sig_dot =
         self.apply(self.init_bert_weights)
@@ -160,10 +160,10 @@ class Bert(PreTrainedBertModel):
             scores["tf"] = self.tok["tf"](sequence_output)
         if "tf_idf" in modes:
             scores["tf_idf"] = self.tok["tf_idf"](sequence_output)
-        if "corrupt_sent" in modes:
-            scores["corrupt_sent"] = self.sent["corrupt_sent"](pooled_output)
-        if "corrupt_tok" in modes:
-            scores["corrupt_tok"] = self.tok["corrupt_tok"](sequence_output)
+        if "sc" in modes:
+            scores["sc"] = self.sent["sc"](pooled_output)
+        if "tc" in modes:
+            scores["tc"] = self.tok["tc"](sequence_output)
         return scores
 
     def cosine_similarity(self, a, b):

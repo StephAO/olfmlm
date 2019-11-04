@@ -176,7 +176,7 @@ def forward_step(data, model, criterion, modes, args):
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
         else:
             # TODO do I need separate criterion sentences?
-            score = score.view(-1, 2) if mode in ["corrupt_tok", "cap"] else score
+            score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous()).mean()
     return losses, num_tokens
@@ -245,11 +245,12 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     modes = args.modes.split(',')
     if args.incremental:
         modes = modes[:epoch]
-    train_data.dataset.set_args(modes, past_iters)
+    train_data.dataset.set_args(modes, past_iters, epoch)
     data_iters = iter(train_data)
 
     timers('interval time').start()
     while tot_tokens < max_tokens:
+        modes_ = [modes[iteration % len(modes)]] if args.alternating else modes
         while True:
             try:
                 losses, skipped_iter, num_tokens = train_step(next(data_iters),
@@ -257,7 +258,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                               criterion,
                               optimizer,
                               lr_scheduler,
-                              modes,
+                              modes_,
                               args)
                 break
             except (TypeError, RuntimeError) as e:

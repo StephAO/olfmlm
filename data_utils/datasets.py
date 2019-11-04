@@ -506,6 +506,8 @@ class bert_dataset(data.Dataset):
         with open(self.idf_path, "rb") as f:
             self.idfs = pickle.load(f)
         self._all_tf = []
+        self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "wlen", "cap", "tf", "tf_idf"]
+        self.task_dict = dict(zip(self.task_list, range(len(self.task_list))))
 	
     def __len__(self):
         return self.dataset_size
@@ -528,41 +530,38 @@ class bert_dataset(data.Dataset):
         # Assert that at most 1 sentence distance loss exists
         self.sentence_distances = ["nsp", "rg", "sd", "so"]
         assert [x in self.sentence_distances for x in self.modes].count(True) <= 1
-        if "mlm" in self.modes: # Masked Language Data
-            self.mask_lm_prob = 0.15
-            self.task_id = 0
+        # Masked Language Data (Default)
+        self.mask_lm_prob = 0.15
+        self.task_id = self.task_dict[self.modes[-1]]
+        # Semantic Similarity
         if "nsp" in self.modes: # Next Sentence Prediction Data
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / 2)
             self.concat = True
-            self.task_id = 1
         if "psp" in self.modes:  # Next Sentence Prediction Data
             self.split_percent = 2. / 3.
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / 2)
             self.concat = True
-            self.task_id = 1
         if "sd" in self.modes: # Sentence Distance Data
             self.split_percent = 1. / 3.
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / 2)
             self.concat = True
-            self.task_id = 1
             self.shuffle = True
         if "so" in self.modes: # Sentence Re-ordering Data
             self.split_percent = 1.0
             self.num_sent_per_seq = 2
             self.target_seq_length = int(self.max_seq_len / self.num_sent_per_seq)
             self.concat = True
-            #self.task_id = 1
             self.shuffle = False
         if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
             self.num_sent_per_seq = 2
-            self.task_id = 1
-        if "corrupt_sent" in self.modes or "corrupt_tok" in self.modes: # Corrupt Data
+        # Sequence Consistency
+        if "sc" in self.modes or "tc" in self.modes: # Corrupt Data
             self.corruption_rate = 0.50
-            self.task_id = 2
+
 
     def __getitem__(self, idx):
         # TODO keep track of known documents that are too short
@@ -669,19 +668,19 @@ class bert_dataset(data.Dataset):
         
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
-        token_labels["corrupt_tok"] = []
+        token_labels["tc"] = []
         if corrupted:
-            sentence_labels["corrupt_sent"] = True
+            sentence_labels["sc"] = True
             for i in range(len(tokens)):
                 ids.append(self.corrupt_seq(tokens[i], token_types[i], rng))
-                token_labels["corrupt_tok"].append(np.zeros_like(tokens[i]))
+                token_labels["tc"].append(np.zeros_like(tokens[i]))
             for i in range(len(tokens)):
-                token_labels["corrupt_tok"][i][ids[i]] = 1.
-                token_labels["corrupt_tok"][i] = token_labels["corrupt_tok"][i].tolist()
+                token_labels["tc"][i][ids[i]] = 1.
+                token_labels["tc"][i] = token_labels["tc"][i].tolist()
         else:
-            sentence_labels["corrupt_sent"] = False
+            sentence_labels["sc"] = False
             for i in range(len(tokens)):
-                token_labels["corrupt_tok"].append(np.zeros_like(tokens[i]).tolist())
+                token_labels["tc"].append(np.zeros_like(tokens[i]).tolist())
         return tokens, token_types, sentence_labels, token_labels, ids
 
     def sentence_tokenize(self, sent, sentence_num=0, beginning=False, ending=False):
