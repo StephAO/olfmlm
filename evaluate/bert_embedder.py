@@ -82,8 +82,6 @@ class BertEmbedderModule(nn.Module):
             args.input_module, cache_dir=cache_dir
         )
 
-        self.split = args.split
-
         self._cls_id = tokenizer.vocab["[CLS]"]
         self._sep_id = tokenizer.vocab["[SEP]"]
         self._pad_id = tokenizer.vocab["[PAD]"]
@@ -163,26 +161,9 @@ class BertEmbedderModule(nn.Module):
         if self.embeddings_mode != "only":
             # encoded_layers is a list of layer activations, each of which is
             # <float32> [batch_size, seq_len, output_dim]
-            if self.split:
-                s1, s2 = _split_sentence(ids, self._cls_id, self._sep_id, self._pad_id)
-                token_types = torch.zeros_like(ids)
-
-                u = self.model(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-                v = None if s2 is None else \
-                    self.model(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-
-                # if self.two_models:
-                #     u2 = self.model_2(s1, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-                #     v2 = None if s2 is None else \
-                #         self.model_2(s2, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)[0]
-                #     u = torch.cat([u, u2], dim=2)
-                #     v = None if v is None else torch.cat([v, v2], dim=2)
-                h_enc = torch.cat((u,u,u,u), dim=2) if v is None else torch.cat((u, v, u - v, self.normalize(u * v)), dim=2)
-
-            else:
-                token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
-                u, _ = self.model(ids, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)
-                h_enc = u
+            token_types = _get_seg_ids(ids, self._sep_id) if is_pair_task else torch.zeros_like(ids)
+            u, _ = self.model(ids, token_type_ids=token_types, attention_mask=mask, output_all_encoded_layers=False)
+            h_enc = u
 
         if self.embeddings_mode in ["none", "top"]:
             h = h_enc
@@ -203,7 +184,5 @@ class BertEmbedderModule(nn.Module):
     def get_output_dim(self):
         if self.embeddings_mode == "cat":
             return 2 * self.model.config.hidden_size
-        elif self.split:
-            return 4 * self.model.config.hidden_size
         else:
             return self.model.config.hidden_size

@@ -495,7 +495,7 @@ class bert_dataset(data.Dataset):
         if self.dataset_size is None:
             self.dataset_size = self.ds_len * (self.ds_len-1)
         self.presplit_sentences = presplit_sentences
-        self.corrupt_per_sentence = 0.10
+        self.corrupt_per_sentence = 0.05
         self.target_seq_length = self.max_seq_len
         self.epoch = 0
         self.permutations = {0: [0,1], 1: [1,0]} #{0: [0,1,2], 1: [1,2,0], 2: [2,0,1], 3: [1,0,2], 4: [0,2,1], 5: [2,1,0]}
@@ -560,7 +560,7 @@ class bert_dataset(data.Dataset):
             self.num_sent_per_seq = 2
         # Sequence Consistency
         if "sc" in self.modes or "tc" in self.modes: # Corrupt Data
-            self.corruption_rate = 0.50
+            self.corruption_rate = 0.90
 
 
     def __getitem__(self, idx):
@@ -853,9 +853,10 @@ class bert_dataset(data.Dataset):
             while doc is None:
                 doc = self.sentence_split(self.get_doc(doc_idx))
                 if not doc:
-                    self.useless_docs[doc_idx] = None
-                while doc_idx in self.useless_docs:
                     doc_idx = (doc_idx + 1) % self.ds_len
+                #    self.useless_docs[doc_idx] = None
+                #while doc_idx in self.useless_docs:
+                #    doc_idx = (doc_idx + 1) % self.ds_len
 
             end_idx = rng.randint(0, len(doc) - 1)
             start_idx = end_idx - 1
@@ -943,7 +944,7 @@ class bert_dataset(data.Dataset):
                 token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]} 
                 split_points = []
                 doc = None
-                self.useless_docs[doc_idx] = None
+                #self.useless_docs[doc_idx] = None
                 doc_idx = (doc_idx + 1) % self.ds_len
 
                         

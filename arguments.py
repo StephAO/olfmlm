@@ -91,7 +91,7 @@ def add_training_args(parser):
                        help='report interval')
     group.add_argument('--train-iters', type=int, default=1000000,
                        help='number of iterations per epoch')
-    group.add_argument('--train-tokens', type=int, default=500000000,
+    group.add_argument('--train-tokens', type=int, default=1000000000,
                        help='number of tokens per epoch')
     group.add_argument('--seed', type=int, default=1234,
                        help='random seed')
@@ -266,8 +266,6 @@ def get_args():
 
     args = parser.parse_args()
 
-    if args.save is None:
-        args.save = os.path.join(pretrained_path, args.model_type)
     if args.modes is None:
         if args.model_type == "mlm":
             args.modes = "mlm"
@@ -281,7 +279,12 @@ def get_args():
         m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
                       open('/proc/self/status').read())
         nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
-        args.num_workers = nw  - 1 # leave 1 cpu for main process
+        args.num_workers = int(0.8 * nw) # leave 1 cpu for main process
+
+    args.model_type += '_inc' if args.incremental else ''
+    args.model_type += '_alt' if args.alternating else ''
+    if args.save is None:
+        args.save = os.path.join(pretrained_path, args.model_type)
 
     args.cuda = torch.cuda.is_available()
     args.rank = int(os.getenv('RANK', '0'))

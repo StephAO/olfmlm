@@ -52,7 +52,7 @@ def handle_arguments(cl_arguments):
         "-c",
         type=str,
         nargs="+",
-        default="config/defaults.conf",
+        default="test_bert.conf",
         help="Config file(s) (.conf) for model parameters.",
     )
     parser.add_argument(
@@ -334,8 +334,11 @@ def initial_setup(args, cl_args):
 
     if cl_args.remote_log:
         from jiant.utils import gcp
-
-        gcp.configure_remote_logging(args.remote_log_name)
+        raise NotImplementedError("This has to be fixed, see comments below for hints on how to fix") 
+        #remote_log_name = ${exp_name}"__"${run_name}  // Log name for GCP remote logging, if used. This
+        #                                      // should be globally unique to your run. Usually
+        #                                      // safe to ignore.
+        #gcp.configure_remote_logging(args.remote_log_name)
 
     if cl_args.notify:
         from jiant.utils import emails
@@ -466,22 +469,21 @@ def load_model_for_target_train_run(args, ckpt_path, model, strict, task):
 
 def add_required_args(args, cl_args):
     if cl_args.exp_name is not None:
-        args.exp_name = cl_args.exp_name
+        args["exp_name"] = cl_args.exp_name
+
     if "exp_name" not in args:
         raise ValueError("Experiment name (--exp_name or in config file) is required")
 
-    args.data_dir = glue_data_path
-    args.project_dir = finetuned_path
-    args.bert_config_file = bert_config_file
-    args.exp_dir = os.path.join(args.project_dir, args.exp_name)
-    args.run_dir = os.path.join(args.exp_dir, args.run_name if "run_name" in args else "tuning")
-    args.local_log_path = os.path.join(args.run_dir, "log.log")
+    args["data_dir"] = glue_data_path
+    args["project_dir"] = finetuned_path
+    args["bert_config_file"] = bert_config_file
+    args["exp_dir"] = os.path.join(args.project_dir, args.exp_name)
+    args["run_dir"] = os.path.join(args.exp_dir, args.run_name if "run_name" in args else "tuning")
+    args["local_log_path"] = os.path.join(args.run_dir, "log.log")
 
-    if "load_target_train_checkpoint" not in args:
-        args.load_target_train_checkpoint = os.path.join(pretrained_path, args.exp_name, "/best/model_converted.pt")
-
-    a
-
+    if args.load_target_train_checkpoint in ["none", "None", None]:
+        print("--->", pretrained_path, args.exp_name, os.path.join(pretrained_path, args.exp_name, "best/model_converted.pt"))
+        args["load_target_train_checkpoint"] = os.path.join(pretrained_path, args.exp_name, "best/model_converted.pt")
 
 def main(cl_arguments):
     """ Train a model for multitask-training."""

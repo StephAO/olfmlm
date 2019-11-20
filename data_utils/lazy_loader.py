@@ -151,7 +151,12 @@ class lazy_array_loader(object):
             else:
                 start = self.ends[index-1]
             end = self.ends[index]
-            rtn = self.file_read(start, end)
+            try:
+                rtn = self.file_read(start, end)
+            except OSError as e:
+                print(e)
+                print(index, start, end)
+                return None
             if self.map_fn is not None:
                 return self.map_fn(rtn)
         else:

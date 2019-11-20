@@ -17,10 +17,11 @@
 
 from comet_ml import Experiment
 
-from apex import amp
+#from apex import amp
 import os
 import random
 import numpy as np
+import psutil
 import torch
 
 from sentence_encoders.arguments import get_args
@@ -127,7 +128,7 @@ def get_batch(data):
     for mode, label in data['aux_labels'].items():
         aux_labels[mode] = torch.autograd.Variable(label.long()).cuda()
     num_sentences = data['n']
-    num_tokens = sum(data['num_tokens']).item()
+    num_tokens = torch.tensor(sum(data['num_tokens']).item()).long().cuda()
     tokens = []
     types = []
     tasks = []
@@ -162,7 +163,7 @@ def forward_step(data, model, criterion, modes, args):
         aux_labels['fs'] = torch.autograd.Variable(torch.ones(args.batch_size * 2 * args.seq_length).long()).cuda()
     # Forward model.
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
-    assert list(scores.keys()) == modes
+    assert sorted(list(scores.keys())) == sorted(modes)
 
     losses = {}
     for mode, score in scores.items():
@@ -183,14 +184,14 @@ def forward_step(data, model, criterion, modes, args):
     return losses, num_tokens
 
 
-def backward_step(optimizer, model, losses, args):
+def backward_step(optimizer, model, losses, num_tokens, args):
     """Backward step."""
     # Backward pass.
     optimizer.zero_grad()
     total_loss = sum(losses.values())
-    with amp.scale_loss(total_loss, optimizer) as scaled_loss:
-         scaled_loss.backward()
-    #total_loss.backward()
+    #with amp.scale_loss(total_loss, optimizer) as scaled_loss:
+    #     scaled_loss.backward()
+    total_loss.backward()
 
     # Reduce across processes.
     losses_reduced = losses
@@ -198,6 +199,7 @@ def backward_step(optimizer, model, losses, args):
         losses_reduced = [[k,v] for k,v in losses_reduced.items()]
         reduced_losses = torch.cat([x[1].view(1) for x in losses_reduced])
         torch.distributed.all_reduce(reduced_losses.data)
+        torch.distributed.all_reduce(num_tokens)
         reduced_losses.data = reduced_losses.data / args.world_size
         model.allreduce_params(reduce_after=False,
                                fp32_allreduce=False)#args.fp32_allreduce)
@@ -206,7 +208,7 @@ def backward_step(optimizer, model, losses, args):
     if args.clip_grad > 0:
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
 
-    return losses_reduced
+    return losses_reduced, num_tokens
 
 
 def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, args):
@@ -214,7 +216,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     # Forward model for one step.
     losses, num_tokens = forward_step(input_data, model, criterion, modes, args)
     # Calculate gradients, reduce across processes, and clip.
-    losses_reduced = backward_step(optimizer, model, losses, args)
+    losses_reduced, num_tokens = backward_step(optimizer, model, losses, num_tokens, args)
     # Update parameters.
     optimizer.step()
     # Update learning rate.
@@ -224,7 +226,7 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
 
 def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, past_iters, args):
     """Train one full epoch."""
-
+    print("Starting training of epoch {}".format(epoch), flush=True)
     # Turn on training mode which enables dropout.
     model.train()
 
@@ -246,7 +248,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     modes = args.modes.split(',')
     if args.incremental:
         modes = modes[:epoch]
-    train_data.dataset.set_args(modes, past_iters, epoch)
+    train_data.dataset.set_args(modes, past_iters)
     data_iters = iter(train_data)
 
     timers('interval time').start()
@@ -265,8 +267,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             except (TypeError, RuntimeError) as e:
                 print("Ooops, caught: '{}', continuing...".format(e))
 
-        log_tokens += num_tokens
-        tot_tokens += num_tokens
+        log_tokens += num_tokens.item()
+        tot_tokens += num_tokens.item()
         lr_scheduler.step(step_num=(epoch-1) * max_tokens + tot_tokens)
         skipped_iters += skipped_iter
         iteration += 1
@@ -290,6 +292,10 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             log_string += ' learning rate {:.3E} |'.format(learning_rate)
             for mode, v in avg_loss.items():
                 log_string += ' {} loss {:.3E} |'.format(mode, v)
+            #pid = os.getpid()
+            #py = psutil.Process(pid)
+            #memory_use = py.memory_info()[0]/2.**30 
+            #log_string += ' total cpu used: {}% ,  this process: {}GB |'.format(psutil.cpu_percent(), memory_use) 
             print(log_string, flush=True)
             #print(iteration)
             total_losses = {}
@@ -315,6 +321,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
     """Evaluation."""
+    print("Entering evaluation", flush=True)
     import time
     # Turn on evaluation mode which disables dropout.
     model.eval()
@@ -338,7 +345,6 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
                 except (TypeError, RuntimeError) as e:
                     print("Ooops, caught: '{}', continuing".format(e))
 
-            tokens += num_tokens
             # Reduce across processes.
             if isinstance(model, DDP):
                 # reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
@@ -346,17 +352,19 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
                 reduced_losses = torch.cat([x[1].view(1) for x in losses_reduced])
                 torch.distributed.all_reduce(reduced_losses.data)
                 reduced_losses.data = reduced_losses.data / args.world_size
-                model.allreduce_params(reduce_after=False,
-                                       fp32_allreduce=False)  # args.fp32_allreduce)
+                torch.distributed.all_reduce(num_tokens)
+                #model.allreduce_params(reduce_after=False,
+                #                       fp32_allreduce=False)  # args.fp32_allreduce)
                 losses = {losses_reduced[i][0]: reduced_losses[i] for i in range(len(losses_reduced))}
             
-            assert list(losses.keys()) == modes
+            assert sorted(list(losses.keys())) == sorted(modes)
             for mode, loss in losses.items():
                 total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float().item()
             iteration += 1
+            tokens += num_tokens.item()
             #print("Done iteration", iteration, time.time() - start_time)
 
-    print("Evaluated using {} tokens over {} iterations.".format(tokens, iteration))
+    print("Evaluated using {} tokens over {} iterations.".format(tokens, iteration), flush=True)
 
     # Move model back to the train mode.
     model.train()
@@ -373,7 +381,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     for mode, v in avg_loss.items():
         log_string += ' {} loss {:.3E} |'.format(mode, v)
     print(log_string, flush=True)
-    print(sep_char * 100)
+    print(sep_char * 100, flush=True)
 
     return tot_loss
 
@@ -413,7 +421,7 @@ def main():
 
     print('Pretrain BERT model')
     # Disable CuDNN.
-    torch.backends.cudnn.enabled = True #False
+    torch.backends.cudnn.enabled = False
 
     # Timer.
     timers = Timers()
@@ -444,7 +452,7 @@ def main():
     model, optimizer, lr_scheduler, criterion = setup_model_and_optimizer(
         args, tokenizer)
 
-    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+    #model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     timers("total time").start()
     # At any point you can hit Ctrl + C to break out of training early.
     try:
