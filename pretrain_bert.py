@@ -167,7 +167,7 @@ def forward_step(data, model, criterion, modes, args):
 
     losses = {}
     for mode, score in scores.items():
-        if mode == ["mlm", "sbo"]:
+        if mode in ["mlm", "sbo"]:
             mlm_loss = criterion_cls(score.view(-1, args.data_size).contiguous().float(),
                                      lm_labels.contiguous().view(-1).contiguous())
             loss_mask = loss_mask.contiguous()

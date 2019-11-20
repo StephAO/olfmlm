@@ -506,8 +506,8 @@ class bert_dataset(data.Dataset):
         with open(self.idf_path, "rb") as f:
             self.idfs = pickle.load(f)
         self._all_tf = []
-        self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "wlen", "cap", "tf", "tf_idf"]
-        self.task_dict = dict(zip(self.task_list, range(len(self.task_list))))
+        self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf"]
+        self.task_dict = dict(zip(self.task_list, range(1, len(self.task_list) + 1)))
 	
     def __len__(self):
         return self.dataset_size

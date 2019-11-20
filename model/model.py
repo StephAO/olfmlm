@@ -80,8 +80,14 @@ class BertModel(torch.nn.Module):
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.pooler))
         param_groups += list(get_params_for_weight_decay_optimization(self.model.bert.embeddings))
         for classifier in self.model.sent.values():
-            param_groups += list(get_params_for_weight_decay_optimization(classifier.seq_relationship))
-        param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.predictions.transform))
-        param_groups[1]['params'].append(self.model.lm.predictions.bias)
+            param_groups += list(get_params_for_weight_decay_optimization(classifier))
+        for k, classifier in self.model.tok.items():
+            if k == "sbo":
+                param_groups += list(get_params_for_weight_decay_optimization(classifier.transform))
+                param_groups[1]['params'].append(classifier.bias)
+            else:
+                param_groups += list(get_params_for_weight_decay_optimization(classifier))
+        param_groups += list(get_params_for_weight_decay_optimization(self.model.lm.transform))
+        param_groups[1]['params'].append(self.model.lm.bias)
 
         return param_groups

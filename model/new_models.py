@@ -13,8 +13,8 @@ class BertSentHead(nn.Module):
         return seq_relationship_score
 
 
-class BertHeadTransform(nn.Module, input_size=None):
-    def __init__(self, config):
+class BertHeadTransform(nn.Module):
+    def __init__(self, config, input_size=None):
         super(BertHeadTransform, self).__init__()
         input_size = input_size if input_size else config.hidden_size
         self.dense = nn.Linear(input_size, config.hidden_size)
@@ -181,18 +181,15 @@ class Bert(PreTrainedBertModel):
             prev_words, next_words = self.tok["fs"](prev_words), self.tok["fs"](next_words)
             s1 = self.batch_cos_sim(next_words, prev_emb) #torch.torch.sigmoid(torch.bmm(next_words, prev_emb[:, :, None]))
             s2 = self.batch_cos_sim(prev_words, next_emb) #torch.sigmoid(torch.bmm(prev_words, next_emb[:, :, None]))
-            #print(s1.shape)
-            #print(s1)
-            #exit(0)
             sim = torch.cat((s1, s2), dim=1).squeeze().view(-1)
             ref = torch.zeros_like(sim)
             scores["fs"] = torch.stack((ref, sim), dim=1)
         if "sbo" in modes:
-            output_concats = [tf.concat((sequence_output[0], sequence_output[0]), axis=-1)]
-            for i in range(sequence_output.shape[-1] - 2):
-               output_concats +=  [tf.concat((sequence_output[i], sequence_output[i + 2]), axis=-1)]
-            output_concats += [tf.concat((sequence_output[i + 2], sequence_output[i + 2]), axis=-1)]
-            output_concats = tf.stack(output_concats)
+            output_concats = [torch.cat((sequence_output[:, 0], sequence_output[:, 0]), dim=-1)]
+            for i in range(sequence_output.shape[1] - 2):
+                output_concats +=  [torch.cat((sequence_output[:, i], sequence_output[:, i + 2]), dim=-1)]
+            output_concats += [torch.cat((sequence_output[:, i + 2], sequence_output[:, i + 2]), dim=-1)]
+            output_concats = torch.stack(output_concats, dim=1)
             scores["sbo"] = self.tok["sbo"](output_concats)
         if "cap" in modes:
             scores["cap"] = self.tok["cap"](sequence_output)
