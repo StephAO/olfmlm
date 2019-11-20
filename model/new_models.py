@@ -13,20 +13,49 @@ class BertSentHead(nn.Module):
         return seq_relationship_score
 
 
-class BertTokenHead(nn.Module):
-    def __init__(self, config, num_classes=2):
-        super(BertTokenHead, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+class BertHeadTransform(nn.Module, input_size=None):
+    def __init__(self, config):
+        super(BertHeadTransform, self).__init__()
+        input_size = input_size if input_size else config.hidden_size
+        self.dense = nn.Linear(input_size, config.hidden_size)
         self.transform_act_fn = ACT2FN[config.hidden_act] \
             if isinstance(config.hidden_act, str) else config.hidden_act
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layernorm_epsilon)
-
-        self.decoder = nn.Linear(config.hidden_size, num_classes)
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.transform_act_fn(hidden_states)
         hidden_states = self.LayerNorm(hidden_states)
+        return hidden_states
+
+
+class BertLMTokenHead(nn.Module):
+    def __init__(self, config, bert_model_embedding_weights, input_size=None):
+        super(BertLMTokenHead, self).__init__()
+        self.transform = BertHeadTransform(config, input_size=input_size)
+
+        # The output weights are the same as the input embeddings, but there is
+        # an output-only bias for each token.
+        self.decoder = nn.Linear(bert_model_embedding_weights.size(1),
+                                 bert_model_embedding_weights.size(0),
+                                 bias=False)
+        self.decoder.weight = bert_model_embedding_weights
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
+
+    def forward(self, hidden_states):
+        hidden_states = self.transform(hidden_states)
+        hidden_states = self.decoder(hidden_states) + self.bias
+        return hidden_states
+
+
+class BertTokenHead(nn.Module):
+    def __init__(self, config, num_classes=2):
+        super(BertTokenHead, self).__init__()
+        self.transform = BertHeadTransform(config)
+        self.decoder = nn.Linear(config.hidden_size, num_classes)
+
+    def forward(self, hidden_states):
+        hidden_states = self.transform(hidden_states)
         predictions = self.decoder(hidden_states)
         return predictions
 
@@ -85,7 +114,7 @@ class Bert(PreTrainedBertModel):
     def __init__(self, config, modes=["mlm"]):
         super(Bert, self).__init__(config)
         self.bert = BertModel(config)
-        self.lm = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
+        self.lm = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight)
         self.sent = torch.nn.ModuleDict()
         self.tok = torch.nn.ModuleDict()
         if "nsp" in modes:
@@ -98,6 +127,9 @@ class Bert(PreTrainedBertModel):
             self.sent["so"] = BertSentHead(config, num_classes=2)
         if "sc" in modes:
             self.sent["sc"] = BertSentHead(config, num_classes=2)
+        if "sbo" in modes:
+            self.tok["sbo"] = BertLMTokenHead(config, self.bert.embeddings.word_embeddings.weight,
+                                              input_size=config.hidden_size * 2)
         if "cap" in modes:
             self.tok["cap"] = BertTokenHead(config, num_classes=2)
         if "wlen" in modes:
@@ -108,8 +140,11 @@ class Bert(PreTrainedBertModel):
             self.tok["tf_idf"] = BertTokenHead(config, num_classes=1)
         if "tc" in modes:
             self.tok["tc"] = BertTokenHead(config, num_classes=2)
-        # if "rg" in modes or "fs" in modes:
-        #     self.sig_dot =
+        if "rg" in modes:
+            self.sent["rg"] = BertHeadTransform(config)
+        if "fs" in modes:
+            self.sent["fs"] = BertHeadTransform(config)
+            self.tok["fs"] = BertHeadTransform(config)
         self.apply(self.init_bert_weights)
 
     def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
@@ -136,14 +171,14 @@ class Bert(PreTrainedBertModel):
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
+            send_emb, recv_emb = self.sent["rg"](send_emb), self.sent["fs"](recv_emb)
             scores["rg"] = self.cosine_similarity(send_emb, recv_emb)
-            
-            #print(self.cosine_similarity(send_emb, recv_emb))
-            #print(scores["rg"])
         if "fs" in modes:
             half = len(input_ids[0])
             prev_emb, next_emb = pooled_output[:half], pooled_output[half:]
+            prev_emb, next_emb = self.sent["fs"](prev_emb), self.sent["fs"](next_emb)
             prev_words, next_words = sequence_output[:half], sequence_output[half:]
+            prev_words, next_words = self.tok["fs"](prev_words), self.tok["fs"](next_words)
             s1 = self.batch_cos_sim(next_words, prev_emb) #torch.torch.sigmoid(torch.bmm(next_words, prev_emb[:, :, None]))
             s2 = self.batch_cos_sim(prev_words, next_emb) #torch.sigmoid(torch.bmm(prev_words, next_emb[:, :, None]))
             #print(s1.shape)
@@ -152,6 +187,13 @@ class Bert(PreTrainedBertModel):
             sim = torch.cat((s1, s2), dim=1).squeeze().view(-1)
             ref = torch.zeros_like(sim)
             scores["fs"] = torch.stack((ref, sim), dim=1)
+        if "sbo" in modes:
+            output_concats = [tf.concat((sequence_output[0], sequence_output[0]), axis=-1)]
+            for i in range(sequence_output.shape[-1] - 2):
+               output_concats +=  [tf.concat((sequence_output[i], sequence_output[i + 2]), axis=-1)]
+            output_concats += [tf.concat((sequence_output[i + 2], sequence_output[i + 2]), axis=-1)]
+            output_concats = tf.stack(output_concats)
+            scores["sbo"] = self.tok["sbo"](output_concats)
         if "cap" in modes:
             scores["cap"] = self.tok["cap"](sequence_output)
         if "wlen" in modes:

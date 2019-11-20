@@ -167,12 +167,12 @@ def forward_step(data, model, criterion, modes, args):
 
     losses = {}
     for mode, score in scores.items():
-        if mode == "mlm":
+        if mode == ["mlm", "sbo"]:
             mlm_loss = criterion_cls(score.view(-1, args.data_size).contiguous().float(),
-                                 lm_labels.contiguous().view(-1).contiguous())
+                                     lm_labels.contiguous().view(-1).contiguous())
             loss_mask = loss_mask.contiguous()
             loss_mask = loss_mask.view(-1)
-            losses["mlm"] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
+            losses[mode] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
         elif mode in ["wlen", "tf", "tf_idf"]: # use regression
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
