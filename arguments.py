@@ -91,7 +91,7 @@ def add_training_args(parser):
                        help='report interval')
     group.add_argument('--train-iters', type=int, default=1000000,
                        help='number of iterations per epoch')
-    group.add_argument('--train-tokens', type=int, default=1000000000,
+    group.add_argument('--train-tokens', type=int, default=500000000,
                        help='number of tokens per epoch')
     group.add_argument('--seed', type=int, default=1234,
                        help='random seed')

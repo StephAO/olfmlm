@@ -477,7 +477,15 @@ def main():
 
             elapsed_time = timers('epoch time').elapsed()
             total_iters += iteration
-            skipped_iters += skipped
+            skipped_iters += skipped 
+            
+            if args.save:
+                best_path = 'best/model.pt'
+                print('saving best model to:',
+                       os.path.join(args.save, best_path))
+                save_checkpoint(best_path, epoch+1, total_iters, model,
+                                optimizer, lr_scheduler, args)
+            
             val_loss = evaluate(epoch, val_data, model, criterion, elapsed_time, args)
 
             if val_loss < best_val_loss:

@@ -171,7 +171,7 @@ class Bert(PreTrainedBertModel):
         if "rg" in modes:
             half = len(input_ids[0])
             send_emb, recv_emb = pooled_output[:half], pooled_output[half:]
-            send_emb, recv_emb = self.sent["rg"](send_emb), self.sent["fs"](recv_emb)
+            send_emb, recv_emb = self.sent["rg"](send_emb), self.sent["rg"](recv_emb)
             scores["rg"] = self.cosine_similarity(send_emb, recv_emb)
         if "fs" in modes:
             half = len(input_ids[0])
