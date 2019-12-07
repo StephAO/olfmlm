@@ -173,12 +173,13 @@ def forward_step(data, model, criterion, modes, args):
             loss_mask = loss_mask.contiguous()
             loss_mask = loss_mask.view(-1)
             losses[mode] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
-        elif mode in ["wlen", "tf", "tf_idf"]: # use regression
+        elif mode in ["fs", "wlen", "tf", "tf_idf"]: # use regression
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
         else:
             # TODO do I need separate criterion sentences?
-            score = score.view(-1, 2) if mode in ["tc", "cap"] else score
+            score = score.view(-1, 2) if mode in ["tc", "cap"] else score      
+            #score = score.view(-1, 4) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous()).mean()
     return losses, num_tokens
@@ -188,7 +189,10 @@ def backward_step(optimizer, model, losses, num_tokens, args):
     """Backward step."""
     # Backward pass.
     optimizer.zero_grad()
-    total_loss = sum(losses.values())
+    if args.no_aux:
+        total_loss = losses['mlm']
+    else:
+        total_loss = sum(losses.values())
     #with amp.scale_loss(total_loss, optimizer) as scaled_loss:
     #     scaled_loss.backward()
     total_loss.backward()
@@ -253,7 +257,20 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     timers('interval time').start()
     while tot_tokens < max_tokens:
-        modes_ = [modes[iteration % len(modes)]] if args.alternating else modes
+        if args.alternating:
+            modes_ = [modes[0]]
+            if epoch > 1:
+                modes_ += [modes[(iteration % (len(modes) - 1)) + 1]]
+        elif args.new_old:
+            modes_ = [modes[0]]
+            if epoch > 1:
+                if iteration % 2 == 0:
+                    modes_ += [modes[-1]]
+                else:
+                    modes_ += modes[1:-1]
+        
+        else:
+            modes_ = modes
         while True:
             try:
                 losses, skipped_iter, num_tokens = train_step(next(data_iters),
@@ -300,7 +317,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             #print(iteration)
             total_losses = {}
 
-            experiment.set_step(tot_iteration + past_iters)
+            experiment.set_step((epoch - 1) * max_tokens + tot_tokens)
             metrics['learning_rate'] = learning_rate
             for mode, v in avg_loss.items():
                 metrics[mode] = v
@@ -480,10 +497,10 @@ def main():
             skipped_iters += skipped 
             
             if args.save:
-                best_path = 'best/model.pt'
-                print('saving best model to:',
-                       os.path.join(args.save, best_path))
-                save_checkpoint(best_path, epoch+1, total_iters, model,
+                ck_path = 'ck/model_{}.pt'.format(epoch)
+                print('saving ck model to:',
+                       os.path.join(args.save, ck_path))
+                save_checkpoint(ck_path, epoch+1, total_iters, model,
                                 optimizer, lr_scheduler, args)
             
             val_loss = evaluate(epoch, val_data, model, criterion, elapsed_time, args)

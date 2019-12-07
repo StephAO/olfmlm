@@ -85,7 +85,7 @@ def add_training_args(parser):
                        'with larger models and sequences')
     group.add_argument('--clip-grad', type=float, default=1.0,
                        help='gradient clipping')
-    group.add_argument('--epochs', type=int, default=2,
+    group.add_argument('--epochs', type=int, default=8,
                        help='upper epoch limit')
     group.add_argument('--log-interval', type=int, default=100000,
                        help='report interval')
@@ -151,6 +151,11 @@ def add_training_args(parser):
     group.add_argument('--incremental', type=str2bool, nargs='?',
                        const=True, default=False,
                        help='If true, each epoch add a new loss. If false, all losses are enabled from the start.')
+    group.add_argument('--new-old', type=str2bool, nargs='?',
+                       const=True, default=False,
+                       help='If true, train new and old losses separately.')
+    group.add_argument('--no-aux', action='store_true',
+                       help='If true, zero out all aux loss.')
     return parser
 
 
@@ -165,7 +170,7 @@ def add_evaluation_args(parser):
     group.add_argument('--eval-iters', type=int, default=2000,
                        help='number of iterations per epoch to run '
                        'validation/test for')
-    group.add_argument('--eval-tokens', type=int, default=50000, #00,
+    group.add_argument('--eval-tokens', type=int, default=5000000, #00,
                        help='number of tokens per epoch to run '
                        'validation/test for')
     group.add_argument('--eval-seq-length', type=int, default=None,
@@ -279,7 +284,7 @@ def get_args():
         m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
                       open('/proc/self/status').read())
         nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
-        args.num_workers = int(0.8 * nw) # leave 1 cpu for main process
+        args.num_workers = int(0.85 * nw) # leave 1 cpu for main process
 
     args.model_type += '_inc' if args.incremental else ''
     args.model_type += '_alt' if args.alternating else ''

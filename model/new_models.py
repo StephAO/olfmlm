@@ -182,8 +182,8 @@ class Bert(PreTrainedBertModel):
             s1 = self.batch_cos_sim(next_words, prev_emb) #torch.torch.sigmoid(torch.bmm(next_words, prev_emb[:, :, None]))
             s2 = self.batch_cos_sim(prev_words, next_emb) #torch.sigmoid(torch.bmm(prev_words, next_emb[:, :, None]))
             sim = torch.cat((s1, s2), dim=1).squeeze().view(-1)
-            ref = torch.zeros_like(sim)
-            scores["fs"] = torch.stack((ref, sim), dim=1)
+            #ref = torch.zeros_like(sim)
+            scores["fs"] = sim #torch.stack((ref, sim), dim=1)
         if "sbo" in modes:
             output_concats = [torch.cat((sequence_output[:, 0], sequence_output[:, 0]), dim=-1)]
             for i in range(sequence_output.shape[1] - 2):

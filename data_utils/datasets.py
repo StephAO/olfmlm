@@ -495,7 +495,7 @@ class bert_dataset(data.Dataset):
         if self.dataset_size is None:
             self.dataset_size = self.ds_len * (self.ds_len-1)
         self.presplit_sentences = presplit_sentences
-        self.corrupt_per_sentence = 0.05
+        self.corrupt_per_sentence = 0.10
         self.target_seq_length = self.max_seq_len
         self.epoch = 0
         self.permutations = {0: [0,1], 1: [1,0]} #{0: [0,1,2], 1: [1,2,0], 2: [2,0,1], 3: [1,0,2], 4: [0,2,1], 5: [2,1,0]}
@@ -558,15 +558,16 @@ class bert_dataset(data.Dataset):
             self.shuffle = False
         if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
             self.num_sent_per_seq = 2
+            #self.max_seq_len *= 2
         # Sequence Consistency
         if "sc" in self.modes or "tc" in self.modes: # Corrupt Data
-            self.corruption_rate = 0.90
+            self.corruption_rate = 0.50
 
 
     def __getitem__(self, idx):
         # TODO keep track of known documents that are too short
         # get rng state corresponding to index (allows deterministic random pair)
-        rng = random.Random(idx + self.past_iters)
+        rng = random.Random() #idx + self.past_iters)
         # get sentence pair and label
         sentence_labels = None
         tokens, token_types, token_labels = [], [], []
@@ -628,8 +629,8 @@ class bert_dataset(data.Dataset):
                 x = self.permutations[sentence_labels["so"]]
                 tokens = [tokens[x[0]], tokens[x[1]]]#, tokens[x[2]]]
                 token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
-                if len(token_labels) > 1:
-                    token_labels = [token_labels[x[0]], token_labels[x[1]]]
+                for k, v in token_labels.items():
+                    token_labels[k] = [v[x[0]], v[x[1]]]
             if "psp" in self.modes:
                 if rng.random() < 0.5:
                     sentence_labels["psp"] = 0  # Next sentence
@@ -638,6 +639,8 @@ class bert_dataset(data.Dataset):
                     assert len(tokens) == 2
                     tokens[0], tokens[1] = tokens[1], tokens[0]
                     token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
+                    for k, v in token_labels.items():
+                        token_labels[k] = v[1], v[0]
 
         elif self.split_percent * 2 < 1 and split <= self.split_percent * 2: # Same document, non-contiguous
             tokens, token_types, token_labels = self.get_sentence(self.target_seq_length * (self.num_sent_per_seq + 1),
@@ -652,6 +655,8 @@ class bert_dataset(data.Dataset):
                     assert len(tokens) == 2
                     tokens[0], tokens[1] = tokens[1], tokens[0]
                     token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
+                    for k, v in token_labels.items():
+                        token_labels[k] = v[1], v[0]
         else: # Different document
             tokens = []
             for i in range(self.num_sent_per_seq):
@@ -672,10 +677,11 @@ class bert_dataset(data.Dataset):
         if corrupted:
             sentence_labels["sc"] = True
             for i in range(len(tokens)):
-                ids.append(self.corrupt_seq(tokens[i], token_types[i], rng))
+                cor_ids, cor_lab = self.corrupt_seq(tokens[i], token_types[i], rng)
+                ids.append(cor_ids)
                 token_labels["tc"].append(np.zeros_like(tokens[i]))
             for i in range(len(tokens)):
-                token_labels["tc"][i][ids[i]] = 1.
+                token_labels["tc"][i][ids[i]] = 1. #float(cor_lab)
                 token_labels["tc"][i] = token_labels["tc"][i].tolist()
         else:
             sentence_labels["sc"] = False
@@ -728,11 +734,13 @@ class bert_dataset(data.Dataset):
                 tokens[trunc_idx].pop(0)
                 token_types[trunc_idx].pop(0)
                 for k, v in token_labels.items():
+                    #print(k, len(v[trunc_idx]))
                     v[trunc_idx].pop(0)
             else:
                 tokens[trunc_idx].pop()
                 token_types[trunc_idx].pop()
                 for k,v in token_labels.items():
+                    #print(k, len(v[trunc_idx]))
                     v[trunc_idx].pop(0)
 
     def mask_token(self, idx, tokens, types, vocab_words, rng):
@@ -754,7 +762,10 @@ class bert_dataset(data.Dataset):
 
     def pad_seq(self, seq):
         """helper function to pad sequence pair"""
-        self.avg_len.append(len(seq))
+        self.avg_len.append(len(seq)) 
+        #if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
+        #    num_pad = max(0, self.max_seq_len // 2 - len(seq))
+        #else:
         num_pad = max(0, self.max_seq_len - len(seq))
         pad_mask = [0] * len(seq) + [1] * num_pad
         seq += [self.tokenizer.get_command('pad').Id] * num_pad
@@ -871,7 +882,7 @@ class bert_dataset(data.Dataset):
                     if len(sentence) + len(tokens) > target_seq_length:
                         break
 
-                    token_labels = {k: token_labels[k] + v for k, v in tl.items() if k in token_labels} 
+                    token_labels = {k: v + token_labels[k] for k, v in tl.items() if k in token_labels} 
                     tokens = tokens + sentence
                     token_types = token_types + sentence_types
                     end_idx += 1
@@ -1075,9 +1086,12 @@ class bert_dataset(data.Dataset):
         num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
         if x < (1. / 3.):
             ids = self.corrupt_permute(tokens, token_types, rng, num_to_corrupt)
+            label = 1.
         elif x < (2. / 3.):
             ids = self.corrupt_replace(tokens, token_types, rng, num_to_corrupt)
+            label = 2.
         else:
             ids = self.corrupt_insert(tokens, token_types, rng, num_to_corrupt)
-        return ids
+            label = 3.
+        return ids, label
 
