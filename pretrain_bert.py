@@ -177,8 +177,7 @@ def forward_step(data, model, criterion, modes, args):
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
         else:
-            # TODO do I need separate criterion sentences?
-            score = score.view(-1, 2) if mode in ["tc", "cap"] else score      
+            score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             #score = score.view(-1, 4) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous()).mean()
