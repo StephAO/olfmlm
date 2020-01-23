@@ -71,6 +71,22 @@ def handle_arguments(cl_arguments):
         help="Name of the experiment (must match folder for loading experiment).",
     )
 
+
+    parser.add_argument(
+        "--exp_dir",
+        "-d",
+        type=str,
+        default=None,
+        help="Experiment directory to use.",
+    )
+
+    parser.add_argument(
+        "--checkpoint",
+        type=int,
+        default=0,
+        help="Checkpoint to use, if 0 (default), use best",
+    )
+
     parser.add_argument(
         "--remote_log", "-r", action="store_true", help="If true, enable remote logging on GCP."
     )
@@ -477,13 +493,19 @@ def add_required_args(args, cl_args):
     args["data_dir"] = glue_data_path
     args["project_dir"] = finetuned_path
     args["bert_config_file"] = bert_config_file
-    args["exp_dir"] = os.path.join(args.project_dir, args.exp_name)
+    if cl_args.exp_dir is None: 
+        args["exp_dir"] = os.path.join(args.project_dir, args.exp_name) 
+    else:
+        args["exp_dir"] = os.path.join(args.project_dir, cl_args.exp_dir)
     args["run_dir"] = os.path.join(args.exp_dir, args.run_name if "run_name" in args else "tuning")
     args["local_log_path"] = os.path.join(args.run_dir, "log.log")
 
     if args.load_target_train_checkpoint in ["none", "None", None]:
-        print("--->", pretrained_path, args.exp_name, os.path.join(pretrained_path, args.exp_name, "best/model_converted.pt"))
-        args["load_target_train_checkpoint"] = os.path.join(pretrained_path, args.exp_name, "best/model_converted.pt")
+        if cl_args.checkpoint > 0:
+            load_path = os.path.join(pretrained_path, args.exp_name, "ck", "model_{}_converted.pt".format(cl_args.checkpoint))
+        else:
+            load_path = os.path.join(pretrained_path, args.exp_name, "best/model_converted.pt")
+        args["load_target_train_checkpoint"] = load_path
 
 def main(cl_arguments):
     """ Train a model for multitask-training."""
