@@ -82,6 +82,7 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
                 text = get_dataset(name if named_corpora else path_, text_key=text_key, label_key=label_key, binarize_sent=binarize_sent,
                     delim=delim, drop_unlabeled=drop_unlabeled, loose_json=loose)
                 make_lazy(path_, text.X, data_type='data')
+            print("HERE", path_, process_fn)
             text = lazy_array_loader(path_, data_type='data', map_fn=process_fn)
         else:
             # get dataset
@@ -92,6 +93,7 @@ def make_dataset(path, seq_length, text_key, label_key, lazy=False, process_fn=N
     if isinstance(path, str):
         path = [path]
     datasets = [get_dataset_from_path(p) for p in path]
+    print("---->", datasets)
     if len(datasets) == 1:
         ds = datasets[0]
     else:

@@ -618,7 +618,7 @@ class bert_dataset(data.Dataset):
 
         # Same document, non-contiguous multiple sequences
         elif self.split_percent * 2 < 1 and split <= self.split_percent * 2:
-            tokens, token_types, token_labels = self.get_sentence(self.max_seq_len * 1.5, self.num_sent_per_seq
+            tokens, token_types, token_labels = self.get_sentence(self.max_seq_len * 1.5, self.num_sent_per_seq,
                                                                   rng, non_contiguous=True)
             sentence_labels["sd"] = 1
             if "psp" in self.modes:

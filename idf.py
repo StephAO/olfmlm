@@ -8,7 +8,7 @@ import time
 import tqdm
 
 data_set_args = {
-    'path': ['wikipedia', 'cnn_dailymail', 'gutenberg'],
+    'path': ['wikipedia'],#, 'cnn_dailymail', 'gutenberg'],
     'seq_length': 128,
     'lazy': True,
     'delim': ',',

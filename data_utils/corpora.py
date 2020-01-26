@@ -42,7 +42,7 @@ class bookcorpus(json_dataset):
 
     command line usage: `--train-data wikipedia`
     """
-    PATH = os.path.join(train_data_path, "bookcorpus.lazy")
+    PATH = os.path.join("/h/stephaneao/bookcorpus.lazy")
     assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
     def __init__(self, **kwargs):
         assert bookcorpus.PATH != '<bookcorpus_path>', \

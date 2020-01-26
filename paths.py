@@ -10,6 +10,6 @@ pretrained_path = os.path.join(save_path, "pretrained_berts")
 finetuned_path = os.path.join(save_path, "finetuned_berts")
 
 # Where you are loading the data from (better on ssd if possible for faster reads)
-data_path = "/scratch/ssd001/home/stephaneao"
+data_path = "/scratch/gobi1/stephaneao"
 glue_data_path = os.path.join(data_path, "glue_data")
 train_data_path = os.path.join(data_path, "train_data")
