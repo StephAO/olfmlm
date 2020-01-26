@@ -545,7 +545,6 @@ class bert_dataset(data.Dataset):
 
 
     def __getitem__(self, idx):
-        # TODO keep track of known documents that are too short
         # get rng state corresponding to index (allows deterministic random pair)
         rng = random.Random(idx) #idx + self.past_iters)
         self.idx = idx
