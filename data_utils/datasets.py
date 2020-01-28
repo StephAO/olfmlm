@@ -550,14 +550,14 @@ class bert_dataset(data.Dataset):
         self.idx = idx
         # get sentence pair and label
         sentence_labels = None
-        tokens, token_types, token_labels = [], [], {}
+        tokens, token_labels = [], {}
         
         while (sentence_labels is None) or any([len(x) < 1 for x in tokens]):
-            tokens, token_types, sentence_labels, token_labels, corrupted_ids = self.create_random_sentencepair(rng)
+            tokens, sentence_labels, token_labels, corrupted_ids = self.create_random_sentencepair(rng)
 
         # join sentence pair, mask, and pad
         tokens, token_types, token_labels, mask, mask_labels, pad_mask, num_tokens = \
-            self.create_masked_lm_predictions(tokens, token_types, token_labels, self.mask_lm_prob,
+            self.create_masked_lm_predictions(tokens, token_labels, self.mask_lm_prob,
                                               self.max_preds_per_seq, self.vocab_words, rng, self.concat,
                                               do_not_mask_tokens=corrupted_ids)
 
@@ -589,18 +589,17 @@ class bert_dataset(data.Dataset):
         split = rng.random()
         # Single sequence
         if self.num_sent_per_seq == 1:
-            tokens, token_types, token_labels = self.get_sentence(self.max_seq_len, 1, rng, sentence_num=0)
+            tokens, token_labels = self.get_sentence(self.max_seq_len, 1, rng, sentence_num=0)
 
         # Contiguous multiple sequences
         elif split <= self.split_percent:
-            tokens, token_types, token_labels = self.get_sentence(self.max_seq_len, self.num_sent_per_seq, rng)
+            tokens, token_labels = self.get_sentence(self.max_seq_len, self.num_sent_per_seq, rng)
             sentence_labels["nsp"] = True
             sentence_labels["sd"] = 0
             if "so" in self.modes:
                 sentence_labels["so"] = rng.randint(0, len(self.permutations) - 1)
                 x = self.permutations[sentence_labels["so"]]
                 tokens = [tokens[x[0]], tokens[x[1]]]#, tokens[x[2]]]
-                token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
                 for k, v in token_labels.items():
                     token_labels[k] = [v[x[0]], v[x[1]]]
             if "psp" in self.modes:
@@ -611,13 +610,12 @@ class bert_dataset(data.Dataset):
                     sentence_labels["psp"] = 1  # Previous sentence
                     assert len(tokens) == 2
                     tokens[0], tokens[1] = tokens[1], tokens[0]
-                    token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
                     for k, v in token_labels.items():
                         token_labels[k] = v[1], v[0]
 
         # Same document, non-contiguous multiple sequences
         elif self.split_percent * 2 < 1 and split <= self.split_percent * 2:
-            tokens, token_types, token_labels = self.get_sentence(self.max_seq_len * 1.5, self.num_sent_per_seq,
+            tokens, token_labels = self.get_sentence(self.max_seq_len * 1.5, self.num_sent_per_seq,
                                                                   rng, non_contiguous=True)
             sentence_labels["sd"] = 1
             if "psp" in self.modes:
@@ -628,20 +626,17 @@ class bert_dataset(data.Dataset):
                     # Swap sequences
                     assert len(tokens) == 2
                     tokens[0], tokens[1] = tokens[1], tokens[0]
-                    token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
                     for k, v in token_labels.items():
                         token_labels[k] = v[1], v[0]
         # Multiple sequences from different documents
         else:
             tokens = []
             for i in range(self.num_sent_per_seq):
-                tok, tok_types, tok_labels = self.get_sentence(self.max_seq_len // self.num_sent_per_seq, 1,
-                                                               rng, sentence_num=i)
+                tok, tok_labels = self.get_sentence(self.max_seq_len // self.num_sent_per_seq, 1, rng)
                 tokens += tok
                 [token_labels[k].extend(v) for k, v in tok_labels.items()]
             if self.shuffle:
                 rng.shuffle(tokens)
-            token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
 
             sentence_labels["nsp"] = False
             sentence_labels["sd"] = 2
@@ -654,7 +649,7 @@ class bert_dataset(data.Dataset):
         if corrupted:
             sentence_labels["sc"] = True
             for i in range(len(tokens)):
-                cor_ids, cor_lab = self.corrupt_seq(tokens[i], token_types[i], rng)
+                cor_ids, cor_lab = self.corrupt_seq(tokens[i] rng)
                 ids.append(cor_ids)
                 token_labels["tc"].append(np.zeros_like(tokens[i]))
             for i in range(len(tokens)):
@@ -665,14 +660,11 @@ class bert_dataset(data.Dataset):
             for i in range(len(tokens)):
                 token_labels["tc"].append(np.zeros_like(tokens[i]).tolist())
 
-        return tokens, token_types, sentence_labels, token_labels, ids
+        return tokens, sentence_labels, token_labels, ids
 
-    def sentence_tokenize(self, sent, sentence_num=0):
+    def sentence_tokenize(self, sent):
         """tokenize sentence and get token types if tokens=True"""
-        tokens = self.tokenizer.EncodeAsIds(sent).tokenization
-        str_type = 'str' + str(sentence_num)
-        token_types = [self.tokenizer.get_type(str_type).Id]*len(tokens)
-        return tokens, token_types
+        return self.tokenizer.EncodeAsIds(sent).tokenization
 
     def sentence_split(self, document):
         """split document into sentences"""
@@ -831,7 +823,6 @@ class bert_dataset(data.Dataset):
     def get_sentence(self, target_seq_length, num_sents, rng, sentence_num=0, non_contiguous=False):
         num_sent_required = num_sents + 1 if non_contiguous else num_sents
         sentences = deque()
-        sentence_types = deque()
         sent_token_labels = deque()
 
         doc = self.sentence_split(self.get_doc(self.idx))
@@ -845,18 +836,16 @@ class bert_dataset(data.Dataset):
             if end_idx < len(doc):
                 sentence = doc[end_idx]
                 tl = self.get_word_labels(sentence, doc)
-                sentence, sentence_types_ = self.sentence_tokenize(sentence, sentence_num)
+                sentence = self.sentence_tokenize(sentence, sentence_num)
                 sentences.append(sentence)
-                sentence_types.append(sentence_types_)
                 sent_token_labels.append(tl)
                 end_idx += 1
             # Add previous sentence to sequence
             elif start_idx >= 0:
                 sentence = doc[start_idx]
                 tl = self.get_word_labels(sentence, doc)
-                sentence, sentence_types_ = self.sentence_tokenize(sentence, sentence_num)
+                sentence = self.sentence_tokenize(sentence, sentence_num)
                 sentences.insert(0, sentence)
-                sentence_types.insert(0, sentence_types_)
                 sent_token_labels.insert(0, tl)
                 start_idx -= 1
             else:
@@ -865,6 +854,7 @@ class bert_dataset(data.Dataset):
             total_length += len(sentence)
 
         if len(sentences) < num_sent_required:
+            # TODO get rid of this
             print(sentences)
             sentences = [self.sentence_tokenize("Hello world!", 0), self.sentence_tokenize("It's beginning.", 1)]
 
@@ -877,39 +867,33 @@ class bert_dataset(data.Dataset):
             split_idxs = [0] + list(split_idxs) + [num_sent]
 
         # Combine grouped sentences
-        tokens, token_types = [], []
+        tokens = []
         token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
         for i in range(len(split_idxs) - 1):
             if non_contiguous and i == 1:
                 continue
-            seq_tokens, seq_tt, seq_tl = [], [], {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
+            seq_tokens, seq_tl = [], {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
 
             for sent_idx in range(split_idxs[i], split_idxs[i+1]):
-                # print(sent_idx, len(sentences))
                 seq_tokens += sentences[sent_idx]
-                seq_tt += sentence_types[sent_idx]
                 for k in seq_tl:
                     seq_tl[k] += sent_token_labels[sent_idx][k]
 
             tokens.append(seq_tokens)
-            token_types.append(seq_tt)
             for k in seq_tl:
                 token_labels[k].append(seq_tl[k])
-        if tokens == []:
-            print(split_idxs, sentences, flush=True)
-        return tokens, token_types, token_labels
 
-    def create_masked_lm_predictions(self, tokens, token_types, token_labels, mask_lm_prob, max_preds_per_seq,
+        return tokens, token_labels
+
+    def create_masked_lm_predictions(self, tokens, token_labels, mask_lm_prob, max_preds_per_seq,
                                      vocab_words, rng, concat=False, do_not_mask_tokens=[]):
         """
         Mask sequence pair for BERT training according to:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L338
         """
+        token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
         # Concatenate sequences if requested
         if concat:
-            if len(tokens) < 2:
-                print("!!!", tokens)
-                exit(0)
             assert len(tokens) >= 2
             tokens = [reduce(lambda a, b: a + [self.tokenizer.get_command('sep').Id] + b, tokens)]
             token_types = [reduce(lambda a, b: a + [a[0]] + b, token_types)]
@@ -951,7 +935,7 @@ class bert_dataset(data.Dataset):
 
         return tokens, token_types, token_labels, mask, mask_labels, pad_mask, num_tokens
 
-    def corrupt_replace(self, tokens, token_types, rng, num_to_corrupt):
+    def corrupt_replace(self, tokens, rng, num_to_corrupt):
         indices = []
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
@@ -959,11 +943,10 @@ class bert_dataset(data.Dataset):
         for idx in sorted(cand_indices[:num_to_corrupt]):
             tokens[idx] = rng.choice(self.vocab_words)
             indices += [idx]
-            # indices += [idx - 1, idx, idx + 1]
 
         return indices
 
-    def corrupt_permute(self, tokens, token_types, rng, num_to_corrupt):
+    def corrupt_permute(self, tokens, rng, num_to_corrupt):
         if len(tokens) < 2:
             return []
 
@@ -975,49 +958,45 @@ class bert_dataset(data.Dataset):
             if idx + 1 >= len(tokens):
                 continue
             tokens[idx], tokens[idx + 1] = tokens[idx + 1], tokens[idx]
-            token_types[idx], token_types[idx + 1] = token_types[idx + 1], token_types[idx]
             indices += [idx, idx + 1]
-            # indices += [idx - 1, idx, idx + 1, idx + 2]
 
         return indices
 
-    def corrupt_insert(self, tokens, token_types, rng, num_to_corrupt):
+    def corrupt_insert(self, tokens, rng, num_to_corrupt):
         indices = []
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
 
         for idx in sorted(cand_indices[:num_to_corrupt]):
             tokens.insert(idx, rng.choice(self.vocab_words))
-            token_types.insert(idx, token_types[idx])
             indices += [idx]
             # indices += [idx - 1, idx, idx + 1]
 
         return indices
 
-    def corrupt_delete(self, tokens, token_types, rng, num_to_corrupt):
+    def corrupt_delete(self, tokens, rng, num_to_corrupt):
         cand_indices = [idx for idx in range(len(tokens))]
         rng.shuffle(cand_indices)
         indices = []
 
         for i, idx in enumerate(sorted(cand_indices[:num_to_corrupt], reverse=True)):
             del tokens[idx]
-            del token_types[idx]
             # adjust_idx = idx - (num_to_corrupt - 1 - i)
             # indices += [adjust_idx - 1, adjust_idx]
 
         return indices
 
-    def corrupt_seq(self, tokens, token_types, rng):
+    def corrupt_seq(self, tokens, rng):
         x = rng.random()
         num_to_corrupt = max(2, int(round(len(tokens) * self.corrupt_per_sentence)))
         if x < (1. / 3.):
-            ids = self.corrupt_permute(tokens, token_types, rng, num_to_corrupt)
+            ids = self.corrupt_permute(tokens, rng, num_to_corrupt)
             label = 1.
         elif x < (2. / 3.):
-            ids = self.corrupt_replace(tokens, token_types, rng, num_to_corrupt)
+            ids = self.corrupt_replace(tokens, rng, num_to_corrupt)
             label = 2.
         else:
-            ids = self.corrupt_insert(tokens, token_types, rng, num_to_corrupt)
+            ids = self.corrupt_insert(tokens, rng, num_to_corrupt)
             label = 3.
         return ids, label
 
