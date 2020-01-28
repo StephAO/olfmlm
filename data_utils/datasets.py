@@ -692,7 +692,7 @@ class bert_dataset(data.Dataset):
             rtn = rtn['text']
         return rtn
 
-    def truncate_sequence(self, tokens, token_types, token_labels, rng):
+    def truncate_sequence(self, tokens, token_types, token_labels, tl_idx, rng):
         """
         Truncate sequence pair according to original BERT implementation:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
@@ -701,20 +701,21 @@ class bert_dataset(data.Dataset):
         while True:
             if len(tokens) <= max_num_tokens:
                 break
-            idx = 0 if rng.random() < 0.5 else len(tokens)
+            idx = 0 if rng.random() < 0.5 else len(tokens) - 1
             tokens.pop(idx)
             token_types.pop(idx)
             for k, v in token_labels.items():
-                v.pop(idx)
+                v[tl_idx].pop(idx)
 
-    def pad_seq(self, tokens,  token_types, token_labels):
+    def pad_seq(self, tokens,  token_types, token_labels, tl_idx):
         """helper function to pad sequence pair"""
         self.avg_len.append(len(tokens))
         num_pad = max(0, self.max_seq_len - len(tokens))
         pad_mask = [0] * len(tokens) + [1] * num_pad
         tokens += [self.tokenizer.get_command('pad').Id] * num_pad
         token_types += [token_types[-1]] * num_pad
-        token_labels += [0.] * num_pad
+        for k in token_labels:
+            token_labels[k][tl_idx] += [0.] * num_pad
         return pad_mask
 
     def mask_token(self, idx, tokens, types, vocab_words, rng):
@@ -817,6 +818,8 @@ class bert_dataset(data.Dataset):
 
     def get_discrete_normal_distributions(self, x, n):
         """Returns distribution over the range of x with 'n' normal distributions equally spread across the range"""
+        if x == 1:
+            return np.ones(1)
         num_normal_dist = n - 1
         dist = np.zeros(x)
         for d in range(num_normal_dist):
@@ -861,15 +864,17 @@ class bert_dataset(data.Dataset):
 
             total_length += len(sentence)
 
-        assert len(sentences) >= num_sent_required
+        if len(sentences) < num_sent_required:
+            print(sentences)
+            sentences = [self.sentence_tokenize("Hello world!", 0), self.sentence_tokenize("It's beginning.", 1)]
 
         # Get split indices (i.e. subdivide the set of sentences)
         num_sent = len(sentences)
         split_idxs = [0, num_sent]
         if num_sent_required > 1:
-            split_dist = self.get_distribution(num_sent, num_sent_required)
-            split_idxs = np.random.choice(list(range(num_sent)), num_sent_required, replace=False, p=split_dist)
-            split_idxs = [0] + split_idxs + [num_sent]
+            split_dist = self.get_discrete_normal_distributions(num_sent - 1, num_sent_required)
+            split_idxs = np.random.choice(list(range(1, num_sent)), num_sent_required - 1, replace=False, p=split_dist)
+            split_idxs = [0] + list(split_idxs) + [num_sent]
 
         # Combine grouped sentences
         tokens, token_types = [], []
@@ -880,7 +885,8 @@ class bert_dataset(data.Dataset):
             seq_tokens, seq_tt, seq_tl = [], [], {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
 
             for sent_idx in range(split_idxs[i], split_idxs[i+1]):
-                seq_tokens += sentence[sent_idx]
+                # print(sent_idx, len(sentences))
+                seq_tokens += sentences[sent_idx]
                 seq_tt += sentence_types[sent_idx]
                 for k in seq_tl:
                     seq_tl[k] += sent_token_labels[sent_idx][k]
@@ -889,7 +895,8 @@ class bert_dataset(data.Dataset):
             token_types.append(seq_tt)
             for k in seq_tl:
                 token_labels[k].append(seq_tl[k])
-
+        if tokens == []:
+            print(split_idxs, sentences, flush=True)
         return tokens, token_types, token_labels
 
     def create_masked_lm_predictions(self, tokens, token_types, token_labels, mask_lm_prob, max_preds_per_seq,
@@ -900,12 +907,13 @@ class bert_dataset(data.Dataset):
         """
         # Concatenate sequences if requested
         if concat:
+            if len(tokens) < 2:
+                print("!!!", tokens)
+                exit(0)
+            assert len(tokens) >= 2
             tokens = [reduce(lambda a, b: a + [self.tokenizer.get_command('sep').Id] + b, tokens)]
             token_types = [reduce(lambda a, b: a + [a[0]] + b, token_types)]
-            def reduce_token_labels(a, b):
-                for k in a.keys():
-                    a[k] += b[k] + [0.]
-            token_labels = [reduce(reduce_token_labels, token_labels)]
+            token_labels = {k: [reduce(lambda a, b: a + [0.] + b, v)] for k, v in token_labels.items()}
 
         mask = [[] for _ in range(len(tokens))]
         mask_labels = [[] for _ in range(len(tokens))]
@@ -913,19 +921,19 @@ class bert_dataset(data.Dataset):
         num_tokens = 0
         for i in range(len(tokens)):
             # Truncate sequence if too long
-            self.truncate_sequence(tokens[i], token_types[i], token_labels[i], rng)
+            self.truncate_sequence(tokens[i], token_types[i], token_labels, i, rng)
             # Add start and end tokens ('CLS' and 'SEP' respectively)
             tokens[i] = [self.tokenizer.get_command('ENC').Id] + tokens[i] + [self.tokenizer.get_command('sep').Id]
             token_types[i] = [token_types[i][0]] + token_types[i] + [token_types[i][0]]
             for k in token_labels.keys():
                 token_labels[k][i] = [0.] + token_labels[k][i] + [0.]
-            cand_indices = range(len(tokens[i]))
+            cand_indices = list(range(len(tokens[i])))
+            num_to_predict = min(max_preds_per_seq, max(1, int(round(len(tokens[i]) * mask_lm_prob))))
             rng.shuffle(cand_indices)
             num_tokens += len(tokens)
             # Pad sequence if too short
-            pad_mask[i] = self.pad_seq(tokens[i], token_types[i], token_labels[i])
+            pad_mask[i] = self.pad_seq(tokens[i], token_types[i], token_labels, i)
             # Mask tokens
-            num_to_predict = min(max_preds_per_seq, max(1, int(round(len(tokens[i]) * mask_lm_prob))))
             mask[i] = [0] * len(tokens[i])
             mask_labels[i] = [-1] * len(tokens[i])
             num_masked, ci = 0, 0
