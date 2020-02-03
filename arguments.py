@@ -189,12 +189,14 @@ def add_data_args(parser):
 
     group = parser.add_argument_group('data', 'data configurations')
 
-    group.add_argument('--shuffle', action='store_true',
-                       help='Shuffle data. Shuffling is deterministic '
-                       'based on seed and current epoch.')
+    group.add_argument('--shuffle', type=str2bool, nargs='?',
+                        const=True, default=True,
+                        help='Shuffle data.')
     group.add_argument('--train-data', nargs='+', default=['bert_corpus'],
                        help='Filename (or whitespace separated filenames) '
                        'for training.')
+    group.add_argument('--max-dataset-size', type=int, default=None,
+                       help='Maximum number of documents to use')
     group.add_argument('--delim', default=',',
                        help='delimiter used to parse csv data files')
     group.add_argument('--text-key', default='text',

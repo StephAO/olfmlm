@@ -45,7 +45,7 @@ def make_data_loader(dataset, batch_size, args):
 
     shuffle = args.shuffle
     if shuffle:
-        sampler = data_utils.samplers.RandomSampler(dataset, replacement=True, num_samples=batch_size*args.train_iters)
+        sampler = data_utils.samplers.RandomSampler(dataset, replacement=False)
     else:
         sampler = torch.utils.data.SequentialSampler(dataset)
     world_size = args.world_size
@@ -143,6 +143,7 @@ def make_loaders(args):
         'cache_dir': args.cache_dir,
         'max_preds_per_seq': args.max_preds_per_seq,
         'presplit_sentences': args.presplit_sentences,
+        'max_dataset_size': args.max_dataset_size
     }
 
     eval_set_args = copy.copy(data_set_args)

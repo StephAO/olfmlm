@@ -470,12 +470,12 @@ class bert_dataset(data.Dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-        dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
-    def __init__(self, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01, dataset_size=None, presplit_sentences=False, **kwargs):
+    def __init__(self, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01,
+                 presplit_sentences=False, max_dataset_size=None, **kwargs):
         self.avg_len = []
-        self.ds = ds
+        self.ds = ds[:max_dataset_size] if max_dataset_size else ds
         self.ds_len = len(self.ds)
         self.tokenizer = self.ds.GetTokenizer()
         self.vocab_words = list(self.tokenizer.text_token_vocab.values())
@@ -485,9 +485,6 @@ class bert_dataset(data.Dataset):
         if max_preds_per_seq is None:
             max_preds_per_seq = math.ceil(max_seq_len*mask_lm_prob / 10)*10
         self.max_preds_per_seq = max_preds_per_seq
-        self.dataset_size = dataset_size
-        if self.dataset_size is None:
-            self.dataset_size = self.ds_len * (self.ds_len-1)
         self.presplit_sentences = presplit_sentences
         self.corrupt_per_sentence = 0.10
         self.epoch = 0
@@ -501,7 +498,7 @@ class bert_dataset(data.Dataset):
         self.task_dict = dict(zip(self.task_list, range(1, len(self.task_list) + 1)))
 	
     def __len__(self):
-        return self.dataset_size
+        return self.ds_len
 
     def set_args(self, modes, past_iters):
         # TODO: full training defined by number of tokens seen - not by number of iterations
