@@ -88,6 +88,22 @@ class cnn_dailymail(json_dataset):
         super(cnn_dailymail, self).__init__(cnn_dailymail.PATH, **kwargs)
 
 
+class bert_corpus(json_dataset):
+    """
+    dataset for bert corpus (wikipedia/book) with arguments configured for convenience
+
+    command line usage: `--train-data wikipedia`
+    """
+    PATH = os.path.join(train_data_path, "bert_corpus.lazy")
+    assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
+    def __init__(self, **kwargs):
+        assert bert_corpus.PATH != '<cnn_dailymail>', cnn_dailymail.assert_str
+        if not kwargs:
+            kwargs = {}
+        kwargs['text_key'] = 'text'
+        kwargs['loose_json'] = True
+        super(cnn_dailymail, self).__init__(cnn_dailymail.PATH, **kwargs)
+
 
 NAMED_CORPORA = {
     'wikipedia': wikipedia,

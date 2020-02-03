@@ -285,6 +285,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
         log_tokens += num_tokens.item()
         tot_tokens += num_tokens.item()
+        if tot_tokens > 500000:
+            exit(0)
         lr_scheduler.step(step_num=(epoch-1) * max_tokens + tot_tokens)
         skipped_iters += skipped_iter
         iteration += 1

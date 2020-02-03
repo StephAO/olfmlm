@@ -566,7 +566,7 @@ class bert_dataset(data.Dataset):
                       if k in self.modes}
         aux_labels.update({k: np.array(v) for k, v in token_labels.items() if k in self.modes})
         sample = {'aux_labels': aux_labels, 'n': len(tokens),'num_tokens': num_tokens}
-        
+
         for i in range(len(tokens)):
             sample.update({'text_' + str(i): np.array(tokens[i]), 'types_' + str(i): np.array(token_types[i]),
                            'task_' + str(i): np.full_like(tokens[i], self.task_id),
@@ -589,11 +589,12 @@ class bert_dataset(data.Dataset):
         split = rng.random()
         # Single sequence
         if self.num_sent_per_seq == 1:
-            tokens, token_labels = self.get_sentence(self.max_seq_len, 1, rng, sentence_num=0)
+            tokens, token_labels = self.get_sentence(self.max_seq_len, 1, rng)
 
         # Contiguous multiple sequences
         elif split <= self.split_percent:
-            tokens, token_labels = self.get_sentence(self.max_seq_len, self.num_sent_per_seq, rng)
+            target_seq_len = self.max_seq_len * 2 if "rg" in self.modes or "fs" in self.modes else self.max_seq_len
+            tokens, token_labels = self.get_sentence(target_seq_len, self.num_sent_per_seq, rng)
             sentence_labels["nsp"] = True
             sentence_labels["sd"] = 0
             if "so" in self.modes:
@@ -649,7 +650,7 @@ class bert_dataset(data.Dataset):
         if corrupted:
             sentence_labels["sc"] = True
             for i in range(len(tokens)):
-                cor_ids, cor_lab = self.corrupt_seq(tokens[i] rng)
+                cor_ids, cor_lab = self.corrupt_seq(tokens[i], rng)
                 ids.append(cor_ids)
                 token_labels["tc"].append(np.zeros_like(tokens[i]))
             for i in range(len(tokens)):
@@ -820,7 +821,7 @@ class bert_dataset(data.Dataset):
         return dist / np.sum(dist)
 
 
-    def get_sentence(self, target_seq_length, num_sents, rng, sentence_num=0, non_contiguous=False):
+    def get_sentence(self, target_seq_length, num_sents, rng, non_contiguous=False):
         num_sent_required = num_sents + 1 if non_contiguous else num_sents
         sentences = deque()
         sent_token_labels = deque()
@@ -831,12 +832,12 @@ class bert_dataset(data.Dataset):
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1
         total_length = 0
-        while total_length < target_seq_length:
+        while total_length < target_seq_length or len(sentences) < num_sent_required:
             # Add next sentence to sequence
             if end_idx < len(doc):
                 sentence = doc[end_idx]
                 tl = self.get_word_labels(sentence, doc)
-                sentence = self.sentence_tokenize(sentence, sentence_num)
+                sentence = self.sentence_tokenize(sentence)
                 sentences.append(sentence)
                 sent_token_labels.append(tl)
                 end_idx += 1
@@ -844,19 +845,23 @@ class bert_dataset(data.Dataset):
             elif start_idx >= 0:
                 sentence = doc[start_idx]
                 tl = self.get_word_labels(sentence, doc)
-                sentence = self.sentence_tokenize(sentence, sentence_num)
+                sentence = self.sentence_tokenize(sentence)
                 sentences.insert(0, sentence)
                 sent_token_labels.insert(0, tl)
                 start_idx -= 1
+            # No more sentences to add
             else:
                 break
 
             total_length += len(sentence)
+        
 
         if len(sentences) < num_sent_required:
+            print(doc)
+            print(len(sentences), num_sent_required)
             # TODO get rid of this
-            print(sentences)
-            sentences = [self.sentence_tokenize("Hello world!", 0), self.sentence_tokenize("It's beginning.", 1)]
+            #print(doc)
+            sentences = [self.sentence_tokenize("Data processing is hard."), self.sentence_tokenize("Sorry about the mistakes.")]
 
         # Get split indices (i.e. subdivide the set of sentences)
         num_sent = len(sentences)
@@ -914,7 +919,7 @@ class bert_dataset(data.Dataset):
             cand_indices = list(range(len(tokens[i])))
             num_to_predict = min(max_preds_per_seq, max(1, int(round(len(tokens[i]) * mask_lm_prob))))
             rng.shuffle(cand_indices)
-            num_tokens += len(tokens)
+            num_tokens += len(tokens[i])
             # Pad sequence if too short
             pad_mask[i] = self.pad_seq(tokens[i], token_types[i], token_labels, i)
             # Mask tokens

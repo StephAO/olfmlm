@@ -192,7 +192,7 @@ def add_data_args(parser):
     group.add_argument('--shuffle', action='store_true',
                        help='Shuffle data. Shuffling is deterministic '
                        'based on seed and current epoch.')
-    group.add_argument('--train-data', nargs='+', default=['wikipedia','cnn_dailymail','gutenberg'],
+    group.add_argument('--train-data', nargs='+', default=['bert_corpus'],
                        help='Filename (or whitespace separated filenames) '
                        'for training.')
     group.add_argument('--delim', default=',',
