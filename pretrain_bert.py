@@ -252,12 +252,10 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     if args.incremental:
         modes = modes[:epoch]
     train_data.dataset.set_args(modes, past_iters)
-    print("!!!", len(train_data))
     data_iters = iter(train_data)
 
     timers('interval time').start()
-    done = False
-    while not done:
+    while tot_tokens < max_tokens:
         if args.alternating:
             modes_ = [modes[0]]
             if epoch > 1:
@@ -285,10 +283,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             except (TypeError, RuntimeError) as e:
                 print("Ooops, caught: '{}', continuing...".format(e))
             except StopIteration:
-                done = True
-                break
-        if done:
-            break
+                data_iters = iter(train_data)
 
         log_tokens += num_tokens.item()
         tot_tokens += num_tokens.item()
@@ -358,8 +353,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     start_time = time.time()
     with torch.no_grad():
         iteration = 0
-        done = False
-        while not done:
+        while tokens < max_tokens:
             # Forward evaluation.
             
             while True:
@@ -368,12 +362,9 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
                     break
                 except (TypeError, RuntimeError) as e:
                     print("Ooops, caught: '{}', continuing".format(e))
-                
                 except StopIteration:
-                    done = True
-                    break
-            if done:
-                break
+                    data_iters = iter(data_source)
+
             # Reduce across processes.
             if isinstance(model, DDP):
                 # reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))

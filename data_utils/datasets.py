@@ -632,7 +632,7 @@ class bert_dataset(data.Dataset):
         else:
             tokens = []
             for i in range(self.num_sent_per_seq):
-                tok, tok_labels = self.get_sentence(self.max_seq_len // self.num_sent_per_seq, 1, rng)
+                tok, tok_labels = self.get_sentence(self.max_seq_len // self.num_sent_per_seq, 1, rng, diff_doc=True)
                 tokens += tok
                 [token_labels[k].extend(v) for k, v in tok_labels.items()]
             if self.shuffle:
@@ -820,12 +820,15 @@ class bert_dataset(data.Dataset):
         return dist / np.sum(dist)
 
 
-    def get_sentence(self, target_seq_length, num_sents, rng, non_contiguous=False):
+    def get_sentence(self, target_seq_length, num_sents, rng, non_contiguous=False, diff_doc=False):
         num_sent_required = num_sents + 1 if non_contiguous else num_sents
         sentences = deque()
         sent_token_labels = deque()
 
-        doc = self.sentence_split(self.get_doc(self.idx))
+        idx = self.idx
+        while diff_doc and idx == self.idx:
+            idx = rng.randint(0, self.ds_len - 1)
+        doc = self.sentence_split(self.get_doc(idx))
 
         # Get enough sentences for target length
         end_idx = rng.randint(0, len(doc) - 1)

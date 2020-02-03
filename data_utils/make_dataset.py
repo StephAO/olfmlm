@@ -205,11 +205,7 @@ class DatasetWriter:
         stat_str += "Average number of tokens per document: {:.2f}\n".format(float(self.tok_total) / self.document_total)
         stat_str += "Average number of words per document: {:.2f}\n".format(float(self.word_total) / self.document_total)
         stat_str += "Average number of sentences per document: {:.2f}\n".format(float(self.sentence_total) / self.document_total)
-        # stat_str += "The shortest 5 sentences were:\n{}\n{}\n{}\n{}\n{}\n".format(self.short_q.get(),
-        #                                                                           self.short_q.get(),
-        #                                                                           self.short_q.get(),
-        #                                                                           self.short_q.get(),
-        #                                                                           self.short_q.get())
+
         print(stat_str)
 
     def write_document(self, writes, str_lens):
