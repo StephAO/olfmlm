@@ -97,17 +97,18 @@ class bert_corpus(json_dataset):
     PATH = os.path.join(train_data_path, "bert_corpus.lazy")
     assert_str = "make sure to set PATH at line 27 of data_utils/corpora.py"
     def __init__(self, **kwargs):
-        assert bert_corpus.PATH != '<cnn_dailymail>', cnn_dailymail.assert_str
+        assert bert_corpus.PATH != '<cnn_dailymail>', bert_corpus.assert_str
         if not kwargs:
             kwargs = {}
         kwargs['text_key'] = 'text'
         kwargs['loose_json'] = True
-        super(cnn_dailymail, self).__init__(cnn_dailymail.PATH, **kwargs)
+        super(bert_corpus, self).__init__(bert_corpus.PATH, **kwargs)
 
 
 NAMED_CORPORA = {
     'wikipedia': wikipedia,
     'bookcorpus': bookcorpus,
     'cnn_dailymail': cnn_dailymail,
-    'gutenberg': gutenberg
+    'gutenberg': gutenberg,
+    'bert_corpus': bert_corpus
 }

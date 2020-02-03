@@ -475,8 +475,8 @@ class bert_dataset(data.Dataset):
     def __init__(self, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01,
                  presplit_sentences=False, max_dataset_size=None, **kwargs):
         self.avg_len = []
-        self.ds = ds[:max_dataset_size] if max_dataset_size else ds
-        self.ds_len = len(self.ds)
+        self.ds = ds
+        self.ds_len = min(len(self.ds), max_dataset_size) if max_dataset_size else len(self.ds)
         self.tokenizer = self.ds.GetTokenizer()
         self.vocab_words = list(self.tokenizer.text_token_vocab.values())
         self.ds.SetTokenizer(None)
@@ -543,6 +543,8 @@ class bert_dataset(data.Dataset):
 
     def __getitem__(self, idx):
         # get rng state corresponding to index (allows deterministic random pair)
+        if idx >= self.ds_len:
+            raise StopIteration
         rng = random.Random(idx) #idx + self.past_iters)
         self.idx = idx
         # get sentence pair and label
