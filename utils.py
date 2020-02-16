@@ -109,9 +109,7 @@ def load_checkpoint(model, optimizer, lr_scheduler, args):
     checkpoint_path = args.load
     model_path = checkpoint_path
     model_sd = torch.load(model_path, map_location='cpu')
-    total_iters = model_sd['total_iters']
     epoch = model_sd['epoch']
-    i = model_sd['mid_epoch_iters']
     model.load_state_dict(model_sd['sd'])
 
     checkpoint_path = os.path.dirname(checkpoint_path)
@@ -134,10 +132,10 @@ def load_checkpoint(model, optimizer, lr_scheduler, args):
         np.random.set_state(rng_state[2])
         random.setstate(rng_state[3])
 
-    return epoch, i, total_iters
+    return epoch
 
 
-def save_checkpoint(model_suffix, epoch, i, model, optimizer, lr_scheduler, args):
+def save_checkpoint(model_suffix, epoch, model, optimizer, lr_scheduler, args):
     """Save a model checkpoint."""
 
     model_path = os.path.join(args.save, model_suffix)
@@ -150,11 +148,8 @@ def save_checkpoint(model_suffix, epoch, i, model, optimizer, lr_scheduler, args
             torch.distributed.get_rank() > 0):
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
-        total_iters = args.train_iters * (epoch-1) + i
         sd = {'sd': model.state_dict()}
-        sd['total_iters'] = total_iters
         sd['epoch'] = epoch
-        sd['mid_epoch_iters'] = i
         torch.save(sd, model_path)
         print('saved', model_path)
 

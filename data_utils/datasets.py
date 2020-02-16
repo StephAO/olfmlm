@@ -500,11 +500,10 @@ class bert_dataset(data.Dataset):
     def __len__(self):
         return self.ds_len
 
-    def set_args(self, modes, past_iters):
+    def set_args(self, modes):
         # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
         self.modes = modes
-        self.past_iters = past_iters
         self.split_percent = 1.0
         self.corruption_rate = 0.
         self.num_sent_per_seq = 1
@@ -545,7 +544,7 @@ class bert_dataset(data.Dataset):
         # get rng state corresponding to index (allows deterministic random pair)
         if idx >= self.ds_len:
             raise StopIteration
-        rng = random.Random(idx) #idx + self.past_iters)
+        rng = random.Random(idx)
         self.idx = idx
         # get sentence pair and label
         sentence_labels = None
