@@ -829,8 +829,9 @@ class bert_dataset(data.Dataset):
         while diff_doc and idx == self.idx:
             idx = rng.randint(0, self.ds_len - 1)
         doc = self.sentence_split(self.get_doc(idx))
-
         # Get enough sentences for target length
+        if len(doc) < 2:
+            print(idx, doc, "YIKES")
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1
         total_length = 0
@@ -859,8 +860,8 @@ class bert_dataset(data.Dataset):
         
 
         if len(sentences) < num_sent_required:
-            print(doc)
-            print(len(sentences), num_sent_required)
+            print(idx, doc)
+            #print(len(sentences), num_sent_required)
             # TODO get rid of this
             #print(doc)
             sentences = [self.sentence_tokenize("Data processing is hard."), self.sentence_tokenize("Sorry about the mistakes.")]

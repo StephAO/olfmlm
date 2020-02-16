@@ -87,11 +87,11 @@ def add_training_args(parser):
                        help='gradient clipping')
     group.add_argument('--epochs', type=int, default=8,
                        help='upper epoch limit')
-    group.add_argument('--log-interval', type=int, default=100000,
+    group.add_argument('--log-interval', type=int, default=1000000,
                        help='report interval')
     group.add_argument('--train-iters', type=int, default=1000000,
                        help='number of iterations per epoch')
-    group.add_argument('--train-tokens', type=int, default=500000000,
+    group.add_argument('--train-tokens', type=int, default=100000000,
                        help='number of tokens per epoch')
     group.add_argument('--seed', type=int, default=1234,
                        help='random seed')
@@ -112,23 +112,23 @@ def add_training_args(parser):
                        help='Output directory to save checkpoints to.')
     group.add_argument('--save-iters', type=int, default=None,
                        help='Save every so often iterations.')
-    group.add_argument('--save-optim', action='store_true',
+    group.add_argument('--save-optim', default=True,
                        help='Save current optimizer.')
-    group.add_argument('--save-rng', action='store_true',
+    group.add_argument('--save-rng', default=True,
                        help='Save current rng state.')
-    group.add_argument('--save-all-rng', action='store_true',
+    group.add_argument('--save-all-rng', default=True,
                        help='Save current rng state of each rank in '
                        'distributed training.')
     group.add_argument('--load', type=str, default=None,
                        help='Path to a particular model checkpoint. \
                              (ex. `savedir/model.1000.pt`)')
-    group.add_argument('--load-optim', action='store_true',
+    group.add_argument('--load-optim', default=True,
                        help='Load most recent optimizer corresponding '
                        'to `--load`.')
-    group.add_argument('--load-rng', action='store_true',
+    group.add_argument('--load-rng', default=True,
                        help='Load most recent rng state corresponding '
                        'to `--load`.')
-    group.add_argument('--load-all-rng', action='store_true',
+    group.add_argument('--load-all-rng', default=True,
                        help='Load most recent rng state of each rank in '
                        'distributed training corresponding to `--load`('
                        'complementary to `--save-all-rng`).')
@@ -170,7 +170,7 @@ def add_evaluation_args(parser):
     group.add_argument('--eval-iters', type=int, default=2000,
                        help='number of iterations per epoch to run '
                        'validation/test for')
-    group.add_argument('--eval-tokens', type=int, default=5000000, #00,
+    group.add_argument('--eval-tokens', type=int, default=1000000, #00,
                        help='number of tokens per epoch to run '
                        'validation/test for')
     group.add_argument('--eval-seq-length', type=int, default=None,
@@ -286,7 +286,7 @@ def get_args():
         m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
                       open('/proc/self/status').read())
         nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
-        args.num_workers = int(0.85 * nw) # leave 1 cpu for main process
+        args.num_workers = int(0.80 * nw) # leave cpu for main process
 
     args.model_type += '_inc' if args.incremental else ''
     args.model_type += '_alt' if args.alternating else ''
@@ -296,6 +296,9 @@ def get_args():
     args.cuda = torch.cuda.is_available()
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+
+    args.save_all_rng = args.save_all_rng and args.world_size > 1
+    args.load_all_rng = args.load_all_rng and args.world_size > 1
 
     args.dynamic_loss_scale = True
 

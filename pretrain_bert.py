@@ -103,6 +103,7 @@ def setup_model_and_optimizer(args, tokenizer):
     if args.load is not None:
         epoch, i, total_iters = load_checkpoint(model, optimizer,
                                                 lr_scheduler, args)
+        args.resume_dataloader = True
         if args.resume_dataloader:
             args.epoch = epoch
             args.mid_epoch_iters = i
@@ -160,7 +161,7 @@ def forward_step(data, model, criterion, modes, args):
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     if "fs" in modes:
-        aux_labels['fs'] = torch.autograd.Variable(torch.ones(args.batch_size * 2 * args.seq_length).long()).cuda()
+        aux_labels['fs'] = torch.autograd.Variable(torch.ones(tokens[0].shape[0] * 2 * args.seq_length).long()).cuda()
     # Forward model.
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
     assert sorted(list(scores.keys())) == sorted(modes)
@@ -334,7 +335,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             save_checkpoint(model_suffix, epoch, iteration, model, optimizer,
                             lr_scheduler, args)
 
-    print("Learnt using {} tokens over {} iterations this epoch".format(tot_tokens, tot_iteration))
+    print("Learnt using {} tokens over {} iterations this epoch".format(tot_tokens, tot_iteration + iteration))
     return tot_iteration, skipped_iters
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
@@ -499,7 +500,7 @@ def main():
             total_iters += iteration
             skipped_iters += skipped 
             
-            if args.save and False:
+            if args.save:
                 ck_path = 'ck/model_{}.pt'.format(epoch)
                 print('saving ck model to:',
                        os.path.join(args.save, ck_path))
@@ -510,7 +511,7 @@ def main():
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                if args.save and False:
+                if args.save:
                     best_path = 'best/model.pt'
                     print('saving best model to:',
                            os.path.join(args.save, best_path))
