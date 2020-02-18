@@ -101,13 +101,8 @@ def setup_model_and_optimizer(args, tokenizer):
     criterion = (criterion_cls, criterion_reg)
 
     if args.load is not None:
-        epoch, i, total_iters = load_checkpoint(model, optimizer,
-                                                lr_scheduler, args)
+        args.epoch = load_checkpoint(model, optimizer, lr_scheduler, args)
         args.resume_dataloader = True
-        if args.resume_dataloader:
-            args.epoch = epoch
-            args.mid_epoch_iters = i
-            args.total_iters = total_iters
 
     return model, optimizer, lr_scheduler, criterion
 
@@ -241,9 +236,6 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     tot_tokens = 0
     iteration = 0
     tot_iteration = 0
-    if args.resume_dataloader:
-        iteration = args.mid_epoch_iters
-        args.resume_dataloader = False
 
     # Data iterator.
     modes = args.modes.split(',')
@@ -346,7 +338,7 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     max_tokens = args.eval_tokens
     tokens = 0
     modes = args.modes.split(',')
-    data_source.dataset.set_args(modes, 0)
+    data_source.dataset.set_args(modes)
     data_iters = iter(data_source)
     with torch.no_grad():
         iteration = 0
