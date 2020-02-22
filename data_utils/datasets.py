@@ -510,8 +510,8 @@ class bert_dataset(data.Dataset):
         self.concat = False
         self.shuffle = False
         # Assert that at most 1 sentence distance loss exists
-        self.sentence_distances = ["nsp", "rg", "sd", "so"]
-        assert [x in self.sentence_distances for x in self.modes].count(True) <= 1
+        self.sentence_tasks = ["nsp", "psp", "sc", "rg", "sd", "so"]
+        assert [x in self.sentence_tasks for x in self.modes].count(True) <= 1
         # Masked Language Data (Default)
         self.mask_lm_prob = 0.15
         self.task_id = self.task_dict[self.modes[-1]]

@@ -220,8 +220,71 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     optimizer.step()
     return losses_reduced, num_tokens
 
+def get_stage_info(total_tokens, num_tasks):
+    """
+    Get number of tokens for each task during each stage. Based on ERNIE 2.0's continual multi-task learning
+    Number of stages is equal to the number of tasks (each stage is larger than the previous one)
+    :param total_tokens: total number of tokens to train on
+    :param num_tasks: number of tasks
+    :return: Number of tokens for each task at each stage
+    """
+    tokens_per_task = total_tokens / num_tasks
+    tokens_subunit = tokens_per_task / (num_tasks + 1)
+    tokens_per_task_per_stage = []
+    for i in range(num_tasks):
+        stage_tokens = []
+        for j in range(num_tasks):
+            if i < j:
+                stage_tokens.append(0)
+            elif i > j:
+                stage_tokens.append(tokens_subunit)
+            else:
+                stage_tokens.append(tokens_subunit * (i + 2))
+        tokens_per_task_per_stage.append(stage_tokens)
 
-def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args):
+    return tokens_per_task_per_stage
+
+def set_up_stages(args):
+    """
+    Set up stage information and functions to use for ERNIE 2.0's continual multi-task learning
+    Closure that returns a function that will return next stages token requirements as requested
+    :param args: arguments
+    :return: a function that will return next stages token requirements as requested
+    """
+    assert not args.incremental
+    total_tokens = args.epochs * args.train_tokens
+    modes = args.modes.split(',')
+    if args.always_mlm:
+        modes = modes[1:]
+    stage_splits = get_stage_info(total_tokens, len(modes))
+    stage_idx = 0
+
+    def next_stage():
+        nonlocal stage_idx
+        if stage_idx >= len(stage_splits):
+            print("Finished all training, shouldn't reach this unless it's the very final iteration")
+            return {k: total_tokens for k in modes}
+        assert len(modes) == len(stage_splits[stage_idx])
+        current_stage = {k: v for k, v in zip(modes, stage_splits[stage_idx])}
+        stage_idx += 1
+        return current_stage
+
+    return next_stage
+
+def get_mode_from_stage(current_stage, args):
+    """
+    Get the mode to use given the current stage
+    :param current_stage: number of tokens left for each task for this stage
+    :param args: arguments
+    :return: selected mode
+    """
+    modes = args.modes.split(',')
+    p = np.array([current_stage[m] for m in modes])
+    p /= np.sum(p)
+    return [np.random.choice(modes, p=p)]
+
+def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
+                current_stage=None, next_stage=None):
     """Train one full epoch."""
     print("Starting training of epoch {}".format(epoch), flush=True)
     # Turn on training mode which enables dropout.
@@ -241,25 +304,28 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     modes = args.modes.split(',')
     if args.incremental:
         modes = modes[:epoch]
+
     train_data.dataset.set_args(modes)
+    sent_tasks = [m for m in modes if m in train_data.dataset.sentence_tasks]
+    tok_tasks = [m for m in modes if m not in train_data.dataset.sentence_tasks]
+
     data_iters = iter(train_data)
 
     timers('interval time').start()
     while tot_tokens < max_tokens:
-        if args.alternating:
-            modes_ = [modes[0]]
-            if epoch > 1:
-                modes_ += [modes[(iteration % (len(modes) - 1)) + 1]]
-        elif args.new_old:
-            modes_ = [modes[0]]
-            if epoch > 1:
-                if iteration % 2 == 0:
-                    modes_ += [modes[-1]]
-                else:
-                    modes_ += modes[1:-1]
-        
+        # ERNIE 2.0's continual multi task learning
+        if args.continual_learning:
+            # Comb 1
+            modes_ = get_mode_from_stage(current_stage)
+            if args.always_mlm:
+                # Comb 2
+                modes_ = ['mlm'] + modes_
         else:
-            modes_ = modes
+            # Comb 3 when incremental is False, Comb 4 when incremental is True
+            sent_task = [] if len(sent_tasks) == 0 else sent_tasks[iteration % len(sent_tasks)]
+            modes_ = ['mlm'] + [sent_task] + tok_tasks
+
+
         while True:
             try:
                 losses, num_tokens = train_step(next(data_iters),
@@ -277,6 +343,12 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
         log_tokens += num_tokens.item()
         tot_tokens += num_tokens.item()
+        for m in modes_:
+            current_stage[m] = max(0, current_stage[m] - num_tokens.item())
+
+        if sum(current_stage.values()) == 0:
+            current_stage = next_stage()
+
         # Update learning rate.
         lr_scheduler.step(step_num=(epoch-1) * max_tokens + tot_tokens)
         iteration += 1
@@ -470,12 +542,19 @@ def main():
         # Resume data loader if necessary.
         if args.resume_dataloader:
             start_epoch = args.epoch
+        next_stage = None
+        current_stage = None
+        if args.continual_learning:
+            next_stage = set_up_stages(args)
+            current_stage = next_stage()
+
         # For all epochs.
         for epoch in range(start_epoch, args.epochs+1):
             if args.shuffle:
                 train_data.batch_sampler.sampler.set_epoch(epoch+args.seed)
             timers('epoch time').start()
-            train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args)
+            train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
+                        current_stage=current_stage, next_stage=next_stage)
             elapsed_time = timers('epoch time').elapsed()
 
             if args.save:
