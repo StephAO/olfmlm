@@ -151,7 +151,10 @@ def add_training_args(parser):
     group.add_argument('--incremental', type=str2bool, nargs='?',
                        const=True, default=False,
                        help='If true, each epoch add a new loss. If false, all losses are enabled from the start.')
-    group.add_argument('--new-old', type=str2bool, nargs='?',
+    group.add_argument('--continual-learning', type=str2bool, nargs='?',
+                       const=True, default=False,
+                       help='If true, train new and old losses separately.')
+    group.add_argument('--always_mlm', type=str2bool, nargs='?',
                        const=True, default=False,
                        help='If true, train new and old losses separately.')
     group.add_argument('--no-aux', action='store_true',
@@ -288,8 +291,12 @@ def get_args():
         nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
         args.num_workers = int(0.80 * nw) # leave cpu for main process
 
+    assert not ((args.continual_learning and args.alternating) or (args.continual_learning and args.incremental))
+
     args.model_type += '_inc' if args.incremental else ''
     args.model_type += '_alt' if args.alternating else ''
+    args.model_type += '_cmt' if args.continual_learning else ''
+    args.model_type += '+mlm' if args.always_mlm else ''
     if args.save is None:
         args.save = os.path.join(pretrained_path, args.model_type)
 

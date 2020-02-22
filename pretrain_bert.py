@@ -315,13 +315,24 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     while tot_tokens < max_tokens:
         # ERNIE 2.0's continual multi task learning
         if args.continual_learning:
-            # Comb 1
+            # test 1
             modes_ = get_mode_from_stage(current_stage)
             if args.always_mlm:
-                # Comb 2
+                # test 2
                 modes_ = ['mlm'] + modes_
+        # Alternating between tasks
+        elif args.alternating:
+            if args.always_mlm:
+                # test 3
+                modes_ = ['mlm']
+                if len(modes[1:]) > 0:
+                    # test 4
+                    modes_ += [modes[(iteration % (len(modes) - 1)) + 1]]
+            else:
+                modes_ = [modes[iteration % len(modes)]]
+        # Summing all tasks
         else:
-            # Comb 3 when incremental is False, Comb 4 when incremental is True
+            # test 5 when incremental is False, test 6 when incremental is True
             sent_task = [] if len(sent_tasks) == 0 else sent_tasks[iteration % len(sent_tasks)]
             modes_ = ['mlm'] + [sent_task] + tok_tasks
 
