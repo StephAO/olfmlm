@@ -266,6 +266,8 @@ def set_up_stages(args):
             return {k: total_tokens for k in modes}
         assert len(modes) == len(stage_splits[stage_idx])
         current_stage = {k: v for k, v in zip(modes, stage_splits[stage_idx])}
+        print("Starting stage {} of {}, with task distribution: ".format(stage_idx, len(stage_splits)))
+        print(current_stage)
         stage_idx += 1
         return current_stage
 
@@ -279,6 +281,8 @@ def get_mode_from_stage(current_stage, args):
     :return: selected mode
     """
     modes = args.modes.split(',')
+    if args.always_mlm:
+        modes = modes[1:]
     p = np.array([current_stage[m] for m in modes])
     p /= np.sum(p)
     return [np.random.choice(modes, p=p)]
@@ -307,7 +311,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     train_data.dataset.set_args(modes)
     sent_tasks = [m for m in modes if m in train_data.dataset.sentence_tasks]
-    tok_tasks = [m for m in modes if m not in train_data.dataset.sentence_tasks]
+    tok_tasks = [m for m in modes if m not in ([train_data.dataset.sentence_tasks] + ["mlm"])]
 
     data_iters = iter(train_data)
 
@@ -316,7 +320,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         # ERNIE 2.0's continual multi task learning
         if args.continual_learning:
             # test 1
-            modes_ = get_mode_from_stage(current_stage)
+            modes_ = get_mode_from_stage(current_stage, args)
             if args.always_mlm:
                 # test 2
                 modes_ = ['mlm'] + modes_
@@ -333,8 +337,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
         # Summing all tasks
         else:
             # test 5 when incremental is False, test 6 when incremental is True
-            sent_task = [] if len(sent_tasks) == 0 else sent_tasks[iteration % len(sent_tasks)]
-            modes_ = ['mlm'] + [sent_task] + tok_tasks
+            sent_task = [] if len(sent_tasks) == 0 else [sent_tasks[iteration % len(sent_tasks)]]
+            modes_ = ['mlm'] + sent_task + tok_tasks
 
 
         while True:
@@ -354,11 +358,16 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
         log_tokens += num_tokens.item()
         tot_tokens += num_tokens.item()
-        for m in modes_:
-            current_stage[m] = max(0, current_stage[m] - num_tokens.item())
+        if args.continual_learning:
+            for m in modes_:
+                if args.always_mlm and m == "mlm":
+                    continue
+                current_stage[m] = max(0, current_stage[m] - num_tokens.item())
 
-        if sum(current_stage.values()) == 0:
-            current_stage = next_stage()
+            if sum(current_stage.values()) == 0:
+                ns = next_stage()
+                for m in ns:
+                    current_stage[m] = ns[m]
 
         # Update learning rate.
         lr_scheduler.step(step_num=(epoch-1) * max_tokens + tot_tokens)

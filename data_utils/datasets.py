@@ -828,10 +828,14 @@ class bert_dataset(data.Dataset):
         while diff_doc and idx == self.idx:
             idx = rng.randint(0, self.ds_len - 1)
         doc = self.sentence_split(self.get_doc(idx))
+
+        print(doc)
         # Get enough sentences for target length
         if len(doc) < 2:
             print(idx, doc, "YIKES")
             print(self.ds.split_inds[idx])
+            self.ds.wrapped_data.set_flag()
+            print(self.ds.wrapped_data[self.ds.split_inds[idx]])
             doc = self.sentence_split(self.get_doc(rng.randint(0, self.ds_len - 1)))
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1

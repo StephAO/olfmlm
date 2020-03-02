@@ -154,7 +154,7 @@ def add_training_args(parser):
     group.add_argument('--continual-learning', type=str2bool, nargs='?',
                        const=True, default=False,
                        help='If true, train new and old losses separately.')
-    group.add_argument('--always_mlm', type=str2bool, nargs='?',
+    group.add_argument('--always-mlm', type=str2bool, nargs='?',
                        const=True, default=False,
                        help='If true, train new and old losses separately.')
     group.add_argument('--no-aux', action='store_true',
