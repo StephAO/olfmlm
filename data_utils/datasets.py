@@ -507,7 +507,7 @@ class bert_dataset(data.Dataset):
         self.split_percent = 1.0
         self.corruption_rate = 0.
         self.num_sent_per_seq = 1
-        self.concat = False
+        self.requires_two = False
         self.shuffle = False
         # Assert that at most 1 sentence distance loss exists
         self.sentence_tasks = ["nsp", "psp", "sc", "rg", "sd", "so"]
@@ -519,23 +519,20 @@ class bert_dataset(data.Dataset):
         if "nsp" in self.modes: # Next Sentence Prediction Data
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
-            self.concat = True
         if "psp" in self.modes:  # Next Sentence Prediction Data
             self.split_percent = 2. / 3.
             self.num_sent_per_seq = 2
-            self.concat = True
         if "sd" in self.modes: # Sentence Distance Data
             self.split_percent = 1. / 3.
             self.num_sent_per_seq = 2
-            self.concat = True
             self.shuffle = True
         if "so" in self.modes: # Sentence Re-ordering Data
             self.split_percent = 1.0
             self.num_sent_per_seq = 2
-            self.concat = True
             self.shuffle = False
         if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
-            self.num_sent_per_seq = 2
+            self.num_sent_per_seq *= 2
+            self.requires_two = True
         if "sc" in self.modes or "tc" in self.modes: # Sequence Consistency
             self.corruption_rate = 0.50
 
@@ -555,9 +552,8 @@ class bert_dataset(data.Dataset):
 
         # join sentence pair, mask, and pad
         tokens, token_types, token_labels, mask, mask_labels, pad_mask, num_tokens = \
-            self.create_masked_lm_predictions(tokens, token_labels, self.mask_lm_prob,
-                                              self.max_preds_per_seq, self.vocab_words, rng, self.concat,
-                                              do_not_mask_tokens=corrupted_ids)
+            self.create_masked_lm_predictions(tokens, token_labels, self.mask_lm_prob, self.max_preds_per_seq,
+                                              self.vocab_words, rng, do_not_mask_tokens=corrupted_ids)
 
         
         aux_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in sentence_labels.items()
@@ -820,6 +816,15 @@ class bert_dataset(data.Dataset):
 
 
     def get_sentence(self, target_seq_length, num_sents, rng, non_contiguous=False, diff_doc=False):
+        """
+        Returns a list of sentences (List[List[tokens]) and any token level labels (List[Dict[str, List[Any]])
+        :param target_seq_length: Ideal length for the full string of sentences (counted by number of tokens)
+        :param num_sents: Mininum number of sentences required
+        :param rng: RNG
+        :param non_contiguous: Whether the sentences should be contiguous or non-contiguous from the idexed document
+        :param diff_doc: Whether it should use the indexed document or a different random document
+        :return:
+        """
         num_sent_required = num_sents + 1 if non_contiguous else num_sents
         sentences = deque()
         sent_token_labels = deque()
@@ -829,14 +834,11 @@ class bert_dataset(data.Dataset):
             idx = rng.randint(0, self.ds_len - 1)
         doc = self.sentence_split(self.get_doc(idx))
 
-        print(doc)
         # Get enough sentences for target length
-        if len(doc) < 2:
+        while len(doc) < 4:
             print(idx, doc, "YIKES")
-            print(self.ds.split_inds[idx])
-            self.ds.wrapped_data.set_flag()
-            print(self.ds.wrapped_data[self.ds.split_inds[idx]])
             doc = self.sentence_split(self.get_doc(rng.randint(0, self.ds_len - 1)))
+
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1
         total_length = 0
@@ -898,6 +900,13 @@ class bert_dataset(data.Dataset):
 
         return tokens, token_labels
 
+    def concat_sentences(self, tokens, token_types, token_labels):
+        assert len(tokens) >= 2
+        tokens = [reduce(lambda a, b: a + [self.tokenizer.get_command('sep').Id] + b, tokens)]
+        token_types = [reduce(lambda a, b: a + [a[0]] + b, token_types)]
+        token_labels = {k: [reduce(lambda a, b: a + [0.] + b, v)] for k, v in token_labels.items()}
+        return tokens, token_types, token_labels
+
     def create_masked_lm_predictions(self, tokens, token_labels, mask_lm_prob, max_preds_per_seq,
                                      vocab_words, rng, concat=False, do_not_mask_tokens=[]):
         """
@@ -906,11 +915,16 @@ class bert_dataset(data.Dataset):
         """
         token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
         # Concatenate sequences if requested
-        if concat:
-            assert len(tokens) >= 2
-            tokens = [reduce(lambda a, b: a + [self.tokenizer.get_command('sep').Id] + b, tokens)]
-            token_types = [reduce(lambda a, b: a + [a[0]] + b, token_types)]
-            token_labels = {k: [reduce(lambda a, b: a + [0.] + b, v)] for k, v in token_labels.items()}
+        if len(tokens) >= 4:
+            half = int(len(tokens) / 2)
+            t1, tt1, tl1 = self.concat_sentences(tokens[:half], token_types[:half], token_labels[:half])
+            t2, tt2, tl2 = self.concat_sentences(tokens[half:], token_types[half:], token_labels[half:])
+            tokens, token_types, token_labels = t1 + t2, tt1 + tt2, {k: tl1[k] + tl2[k] for k in token_labels}
+        elif len(tokens) >= 2 and not self.requires_two:
+            tokens, token_types, token_labels = self.concat_sentences(tokens, token_types[:half], token_labels[:half])
+
+
+
 
         mask = [[] for _ in range(len(tokens))]
         mask_labels = [[] for _ in range(len(tokens))]
