@@ -123,6 +123,10 @@ def process_document(document, max_doc_length, tokenizer=None):
         writes += [doc_bytes + doc_separator]
         str_lens.append(str_cnt + 1)  # + 1 for doc separator
     
+    print("-"*100)
+    for w in writes:
+        print(w.decode('utf-8'))
+
     return writes, str_lens, tok_total, word_total, sentence_total, document_total
 
 class DatasetWriter:
@@ -172,10 +176,16 @@ class DatasetWriter:
             if len(doc_info) == 1:
                doc_info = doc_info[0]
             writes, str_lens, toks, words, sents, documents = doc_info 
-                
+            if documents != len(str_lens):
+                print("WTF?")
+                print(writes)
+                print(str_lens)
+                print(documents)
+                exit(0)    
             self.write_document(writes, str_lens)
             self.update_stats(toks, words, sents, documents)
         
+        print("Number of lens:", len(self.str_lens))        
         pkl.dump(self.str_lens, open(self.len_path, 'wb'))
         self.print_stats()
 
@@ -188,15 +198,6 @@ class DatasetWriter:
         # self.shortest_len = self.max_doc_length
         
     def print_stats(self):
-        if type(self.tok_total) == torch.Tensor:
-            self.tok_total = self.tok_total.item()
-        if type(self.word_total) == torch.Tensor:
-            self.word_total = self.word_total.item()
-        if type(self.sentence_total) == torch.Tensor:
-            self.sentence_total = self.sentence_total.item()
-        if type(self.document_total) == torch.Tensor:
-            self.document_total = self.document_total.item()
-        
         stat_str = ""
         stat_str += "Total number of tokens: {}\n".format(self.tok_total)
         stat_str += "Total number of words: {}\n".format(self.word_total)
@@ -224,6 +225,8 @@ class DatasetWriter:
         self.word_total += words
         self.sentence_total += sents
         self.document_total += documents
+
+        assert len(self.str_lens) == self.document_total
 
     def dataset_iterator(self, paths):
         data_set_args = {
@@ -255,7 +258,7 @@ class DatasetWriter:
 
         data_loader = torch.utils.data.dataloader.DataLoader(fd,
                                                              collate_fn=lambda x: x,
-                                                             num_workers=30,
+                                                             num_workers=1,
                                                              pin_memory=True)
 
         dl_iter = iter(data_loader)
@@ -353,7 +356,7 @@ class FilterDataset(data.Dataset):
 if __name__ == "__main__":
     #base_read_path = "/scratch/gobi1/datasets/NLP-Corpus/CNN_dailymail/"
     #read_path_extension = ["cnn/stories/", "dailymail/stories/"]
-    base_read_path = ['bookcorpus', 'wikipedia'] #"/h/stephaneao/bookcorpus_clean"  
+    base_read_path = ['wikipedia', 'bookcorpus'] #"/h/stephaneao/bookcorpus_clean"  
     read_path_extension = None #["books_large_p1_clean.txt", "books_large_p2_clean.txt"]
-    with DatasetWriter("bert_corpus", base_read_path, read_path_extension, from_text_files=False, split_on_newlines=True) as dw:
+    with DatasetWriter("bert_corpus_2", base_read_path, read_path_extension, from_text_files=False, split_on_newlines=True) as dw:
         dw.create()
