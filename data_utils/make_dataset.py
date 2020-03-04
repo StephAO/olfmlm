@@ -34,6 +34,8 @@ def get_doc_len(s, tokenizer):
 def process_document(document, max_doc_length, tokenizer=None):
     str_lens = []
     writes = []
+
+    required_sents = 4
     
     if type(document) == str:
         document = document.split("\n")
@@ -54,7 +56,7 @@ def process_document(document, max_doc_length, tokenizer=None):
     if len(string_document) < 100:
         return [], [], 0, 0, 0, 0
     # Filter documents containing a single sentence
-    if len(document) < 2:
+    if len(document) < required_sents:
         return [], [], 0, 0, 0, 0
 
     num_toks = 0
@@ -91,8 +93,8 @@ def process_document(document, max_doc_length, tokenizer=None):
         doc_len += dl
         num_toks += nt
 
-        # Split if we've reached the max doc length and there's at least 2 sentences left
-        if doc_len >= max_doc_length and num_sents >= 2 and len(document) - i > 3:
+        # Split if we've reached the max doc length and enough sentences left
+        if doc_len >= max_doc_length and num_sents >= required_sents and len(document) - i >= required_sents:
             # Update stats
             doc_str = doc_bytes.decode('utf-8')
             num_words = len(doc_str.split(' '))
@@ -110,7 +112,7 @@ def process_document(document, max_doc_length, tokenizer=None):
             str_cnt = 0
             doc_bytes = b''
 
-    if str_cnt != 0 and num_sents >= 2:
+    if str_cnt != 0 and num_sents >= required_sents:
         # Update stats
         doc_str = doc_bytes.decode('utf-8')
         num_words = len(doc_str.split(' '))
