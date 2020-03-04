@@ -101,12 +101,8 @@ def setup_model_and_optimizer(args, tokenizer):
     criterion = (criterion_cls, criterion_reg)
 
     if args.load is not None:
-        epoch, i, total_iters = load_checkpoint(model, optimizer,
-                                                lr_scheduler, args)
-        if args.resume_dataloader:
-            args.epoch = epoch
-            args.mid_epoch_iters = i
-            args.total_iters = total_iters
+        args.epoch = load_checkpoint(model, optimizer, lr_scheduler, args)
+        args.resume_dataloader = True
 
     return model, optimizer, lr_scheduler, criterion
 
@@ -160,7 +156,7 @@ def forward_step(data, model, criterion, modes, args):
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     if "fs" in modes:
-        aux_labels['fs'] = torch.autograd.Variable(torch.ones(args.batch_size * 2 * args.seq_length).long()).cuda()
+        aux_labels['fs'] = torch.autograd.Variable(torch.ones(tokens[0].shape[0] * 2 * args.seq_length).long()).cuda()
     # Forward model.
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
     assert sorted(list(scores.keys())) == sorted(modes)
@@ -222,12 +218,77 @@ def train_step(input_data, model, criterion, optimizer, lr_scheduler, modes, arg
     losses_reduced, num_tokens = backward_step(optimizer, model, losses, num_tokens, args)
     # Update parameters.
     optimizer.step()
-    # Update learning rate.
-    skipped_iter = 0
-    return losses_reduced, skipped_iter, num_tokens
+    return losses_reduced, num_tokens
 
+def get_stage_info(total_tokens, num_tasks):
+    """
+    Get number of tokens for each task during each stage. Based on ERNIE 2.0's continual multi-task learning
+    Number of stages is equal to the number of tasks (each stage is larger than the previous one)
+    :param total_tokens: total number of tokens to train on
+    :param num_tasks: number of tasks
+    :return: Number of tokens for each task at each stage
+    """
+    tokens_per_task = total_tokens / num_tasks
+    tokens_subunit = tokens_per_task / (num_tasks + 1)
+    tokens_per_task_per_stage = []
+    for i in range(num_tasks):
+        stage_tokens = []
+        for j in range(num_tasks):
+            if i < j:
+                stage_tokens.append(0)
+            elif i > j:
+                stage_tokens.append(tokens_subunit)
+            else:
+                stage_tokens.append(tokens_subunit * (i + 2))
+        tokens_per_task_per_stage.append(stage_tokens)
 
-def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, past_iters, args):
+    return tokens_per_task_per_stage
+
+def set_up_stages(args):
+    """
+    Set up stage information and functions to use for ERNIE 2.0's continual multi-task learning
+    Closure that returns a function that will return next stages token requirements as requested
+    :param args: arguments
+    :return: a function that will return next stages token requirements as requested
+    """
+    assert not args.incremental
+    total_tokens = args.epochs * args.train_tokens
+    modes = args.modes.split(',')
+    if args.always_mlm:
+        modes = modes[1:]
+    stage_splits = get_stage_info(total_tokens, len(modes))
+    stage_idx = 0
+
+    def next_stage():
+        nonlocal stage_idx
+        if stage_idx >= len(stage_splits):
+            print("Finished all training, shouldn't reach this unless it's the very final iteration")
+            return {k: total_tokens for k in modes}
+        assert len(modes) == len(stage_splits[stage_idx])
+        current_stage = {k: v for k, v in zip(modes, stage_splits[stage_idx])}
+        print("Starting stage {} of {}, with task distribution: ".format(stage_idx, len(stage_splits)))
+        print(current_stage)
+        stage_idx += 1
+        return current_stage
+
+    return next_stage
+
+def get_mode_from_stage(current_stage, args):
+    """
+    Get the mode to use given the current stage
+    :param current_stage: number of tokens left for each task for this stage
+    :param args: arguments
+    :return: selected mode
+    """
+    modes = args.modes.split(',')
+    if args.always_mlm:
+        modes = modes[1:]
+    p = np.array([current_stage[m] for m in modes])
+    p /= np.sum(p)
+    return [np.random.choice(modes, p=p)]
+
+def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
+                current_stage=None, next_stage=None):
     """Train one full epoch."""
     print("Starting training of epoch {}".format(epoch), flush=True)
     # Turn on training mode which enables dropout.
@@ -242,37 +303,47 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     tot_tokens = 0
     iteration = 0
     tot_iteration = 0
-    skipped_iters = 0
-    if args.resume_dataloader:
-        iteration = args.mid_epoch_iters
-        args.resume_dataloader = False
 
     # Data iterator.
     modes = args.modes.split(',')
     if args.incremental:
         modes = modes[:epoch]
-    train_data.dataset.set_args(modes, past_iters)
+
+    train_data.dataset.set_args(modes)
+    sent_tasks = [m for m in modes if m in train_data.dataset.sentence_tasks]
+    tok_tasks = [m for m in modes if m not in ([train_data.dataset.sentence_tasks] + ["mlm"])]
+
     data_iters = iter(train_data)
 
     timers('interval time').start()
     while tot_tokens < max_tokens:
-        if args.alternating:
-            modes_ = [modes[0]]
-            if epoch > 1:
-                modes_ += [modes[(iteration % (len(modes) - 1)) + 1]]
-        elif args.new_old:
-            modes_ = [modes[0]]
-            if epoch > 1:
-                if iteration % 2 == 0:
-                    modes_ += [modes[-1]]
-                else:
-                    modes_ += modes[1:-1]
-        
+        # ERNIE 2.0's continual multi task learning
+        if args.continual_learning:
+            # test 1
+            modes_ = get_mode_from_stage(current_stage, args)
+            if args.always_mlm:
+                # test 2
+                modes_ = ['mlm'] + modes_
+        # Alternating between tasks
+        elif args.alternating:
+            if args.always_mlm:
+                # test 3
+                modes_ = ['mlm']
+                if len(modes[1:]) > 0:
+                    # test 4
+                    modes_ += [modes[(iteration % (len(modes) - 1)) + 1]]
+            else:
+                modes_ = [modes[iteration % len(modes)]]
+        # Summing all tasks
         else:
-            modes_ = modes
+            # test 5 when incremental is False, test 6 when incremental is True
+            sent_task = [] if len(sent_tasks) == 0 else [sent_tasks[iteration % len(sent_tasks)]]
+            modes_ = ['mlm'] + sent_task + tok_tasks
+
+
         while True:
             try:
-                losses, skipped_iter, num_tokens = train_step(next(data_iters),
+                losses, num_tokens = train_step(next(data_iters),
                               model,
                               criterion,
                               optimizer,
@@ -287,8 +358,19 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
         log_tokens += num_tokens.item()
         tot_tokens += num_tokens.item()
+        if args.continual_learning:
+            for m in modes_:
+                if args.always_mlm and m == "mlm":
+                    continue
+                current_stage[m] = max(0, current_stage[m] - num_tokens.item())
+
+            if sum(current_stage.values()) == 0:
+                ns = next_stage()
+                for m in ns:
+                    current_stage[m] = ns[m]
+
+        # Update learning rate.
         lr_scheduler.step(step_num=(epoch-1) * max_tokens + tot_tokens)
-        skipped_iters += skipped_iter
         iteration += 1
         # Update losses.
         for mode, loss in losses.items():
@@ -328,14 +410,14 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             iteration = 0
 
         # Checkpointing
-        if args.save and args.save_iters and iteration % args.save_iters == 0:
-            total_iters = args.train_iters * (epoch-1) + iteration
-            model_suffix = 'model/%d.pt' % (total_iters)
-            save_checkpoint(model_suffix, epoch, iteration, model, optimizer,
-                            lr_scheduler, args)
+        # Currently unsupported, fix saving mid epoch tokens to fix
+        # if args.save and args.save_iters and iteration % args.save_iters == 0:
+        #     total_iters = args.train_iters * (epoch-1) + iteration
+        #     model_suffix = 'model/%d.pt' % (total_iters)
+        #     save_checkpoint(model_suffix, epoch, iteration, model, optimizer,
+        #                     lr_scheduler, args)
 
-    print("Learnt using {} tokens over {} iterations this epoch".format(tot_tokens, tot_iteration))
-    return tot_iteration, skipped_iters
+    print("Learnt using {} tokens over {} iterations this epoch".format(tot_tokens, tot_iteration + iteration))
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
     """Evaluation."""
@@ -348,9 +430,8 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
     max_tokens = args.eval_tokens
     tokens = 0
     modes = args.modes.split(',')
-    data_source.dataset.set_args(modes, 0)
+    data_source.dataset.set_args(modes)
     data_iters = iter(data_source)
-    start_time = time.time()
     with torch.no_grad():
         iteration = 0
         while tokens < max_tokens:
@@ -382,7 +463,6 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
                 total_losses[mode] = total_losses.get(mode, 0.0) + loss.data.detach().float().item()
             iteration += 1
             tokens += num_tokens.item()
-            #print("Done iteration", iteration, time.time() - start_time)
 
     print("Evaluated using {} tokens over {} iterations.".format(tokens, iteration), flush=True)
 
@@ -474,66 +554,55 @@ def main():
 
     #model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     timers("total time").start()
+    epoch = 0
     # At any point you can hit Ctrl + C to break out of training early.
     try:
-        total_iters = 0
-        skipped_iters = 0
         start_epoch = 1
         best_val_loss = float('inf')
         # Resume data loader if necessary.
         if args.resume_dataloader:
             start_epoch = args.epoch
-            total_iters = args.total_iters
-            train_data.batch_sampler.start_iter = total_iters % len(train_data)
-        # For all epochs. 
+        next_stage = None
+        current_stage = None
+        if args.continual_learning:
+            next_stage = set_up_stages(args)
+            current_stage = next_stage()
+
+        # For all epochs.
         for epoch in range(start_epoch, args.epochs+1):
             if args.shuffle:
                 train_data.batch_sampler.sampler.set_epoch(epoch+args.seed)
             timers('epoch time').start()
-            iteration, skipped = train_epoch(epoch, model, optimizer,
-                                             train_data, lr_scheduler,
-                                             criterion, timers, experiment,
-                                             metrics, total_iters, args)
-
+            train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
+                        current_stage=current_stage, next_stage=next_stage)
             elapsed_time = timers('epoch time').elapsed()
-            total_iters += iteration
-            skipped_iters += skipped 
-            
-            if args.save and False:
+
+            if args.save:
                 ck_path = 'ck/model_{}.pt'.format(epoch)
                 print('saving ck model to:',
                        os.path.join(args.save, ck_path))
-                save_checkpoint(ck_path, epoch+1, total_iters, model,
-                                optimizer, lr_scheduler, args)
+                save_checkpoint(ck_path, epoch+1, model, optimizer, lr_scheduler, args)
             
             val_loss = evaluate(epoch, val_data, model, criterion, elapsed_time, args)
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                if args.save and False:
+                if args.save:
                     best_path = 'best/model.pt'
                     print('saving best model to:',
                            os.path.join(args.save, best_path))
-                    save_checkpoint(best_path, epoch+1, total_iters, model,
-                                    optimizer, lr_scheduler, args)
+                    save_checkpoint(best_path, epoch+1, model, optimizer, lr_scheduler, args)
 
 
     except KeyboardInterrupt:
         print('-' * 100)
         print('Exiting from training early')
-        if args.save and False: # WARNING I disabled this to save memory, but may be necessary in the future
-            cur_path = 'current/model.pt'
-            print('saving current model to:',
-                   os.path.join(args.save, cur_path))
-            save_checkpoint(cur_path, epoch, total_iters, model, optimizer,
-                            lr_scheduler, args)
         exit()
 
     if args.save and False: # WARNING I disabled this to save memory, but may be necessary in the future
         final_path = 'final/model.pt'
         print('saving final model to:', os.path.join(args.save, final_path))
-        save_checkpoint(final_path, args.epochs, total_iters, model, optimizer,
-                        lr_scheduler, args)
+        save_checkpoint(final_path, args.epochs, model, optimizer, lr_scheduler, args)
 
     if test_data is not None:
         # Run on test data.

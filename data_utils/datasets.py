@@ -500,19 +500,18 @@ class bert_dataset(data.Dataset):
     def __len__(self):
         return self.ds_len
 
-    def set_args(self, modes, past_iters):
+    def set_args(self, modes):
         # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
         self.modes = modes
-        self.past_iters = past_iters
         self.split_percent = 1.0
         self.corruption_rate = 0.
         self.num_sent_per_seq = 1
         self.concat = False
         self.shuffle = False
         # Assert that at most 1 sentence distance loss exists
-        self.sentence_distances = ["nsp", "rg", "sd", "so"]
-        assert [x in self.sentence_distances for x in self.modes].count(True) <= 1
+        self.sentence_tasks = ["nsp", "psp", "sc", "rg", "sd", "so"]
+        assert [x in self.sentence_tasks for x in self.modes].count(True) <= 1
         # Masked Language Data (Default)
         self.mask_lm_prob = 0.15
         self.task_id = self.task_dict[self.modes[-1]]
@@ -545,7 +544,7 @@ class bert_dataset(data.Dataset):
         # get rng state corresponding to index (allows deterministic random pair)
         if idx >= self.ds_len:
             raise StopIteration
-        rng = random.Random(idx) #idx + self.past_iters)
+        rng = random.Random(idx)
         self.idx = idx
         # get sentence pair and label
         sentence_labels = None
@@ -830,7 +829,14 @@ class bert_dataset(data.Dataset):
             idx = rng.randint(0, self.ds_len - 1)
         doc = self.sentence_split(self.get_doc(idx))
 
+        print(doc)
         # Get enough sentences for target length
+        if len(doc) < 2:
+            print(idx, doc, "YIKES")
+            print(self.ds.split_inds[idx])
+            self.ds.wrapped_data.set_flag()
+            print(self.ds.wrapped_data[self.ds.split_inds[idx]])
+            doc = self.sentence_split(self.get_doc(rng.randint(0, self.ds_len - 1)))
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1
         total_length = 0
@@ -859,8 +865,8 @@ class bert_dataset(data.Dataset):
         
 
         if len(sentences) < num_sent_required:
-            print(doc)
-            print(len(sentences), num_sent_required)
+            print(idx, doc)
+            #print(len(sentences), num_sent_required)
             # TODO get rid of this
             #print(doc)
             sentences = [self.sentence_tokenize("Data processing is hard."), self.sentence_tokenize("Sorry about the mistakes.")]

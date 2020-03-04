@@ -18,7 +18,7 @@ import mmap
 import pickle as pkl
 import time
 from itertools import accumulate
-from threading import Lock
+from filelock import FileLock
 
 import torch
 
@@ -109,22 +109,19 @@ class lazy_array_loader(object):
     """
     def __init__(self, path, data_type='data', mem_map=False, map_fn=None):
         lazypath = get_lazy_path(path)
-        datapath = os.path.join(lazypath, data_type)
-        #get file where array entries are concatenated into one big string
-        self._file = open(datapath, 'rb')
-        self.file = self._file
-        #memory map file if necessary
-        self.mem_map = mem_map
-        if self.mem_map:
-            self.file = mmap.mmap(self.file.fileno(), 0, prot=mmap.PROT_READ)
+        self.datapath = os.path.join(lazypath, data_type)
         lenpath = os.path.join(lazypath, data_type+'.len.pkl')
         self.lens = pkl.load(open(lenpath, 'rb'))
         self.ends = list(accumulate(self.lens))
         self.dumb_ends = list(self.ends)
-        self.read_lock = Lock()
+        self.read_lock = FileLock("bert_data_filelock.txt")
         self.process_fn = map_fn
         self.map_fn = map_fn
         self._tokenizer = None
+        self.flag = False
+
+    def set_flag(self):
+        self.flag = True
 
     def SetTokenizer(self, tokenizer):
         """
@@ -156,7 +153,10 @@ class lazy_array_loader(object):
             except OSError as e:
                 print(e)
                 print(index, start, end)
-                return None
+                return None          
+            if self.flag:
+                print("------>", index, start, end, rtn)
+                self.flag = False
             if self.map_fn is not None:
                 return self.map_fn(rtn)
         else:
@@ -176,25 +176,28 @@ class lazy_array_loader(object):
     def __len__(self):
         return len(self.ends)
 
-    def file_read(self, start=0, end=None):
+    def file_read(self, start=0, end=None, flag=False):
         """read specified portion of file"""
 
         # atomic reads to avoid race conditions with multiprocess dataloader
-        self.read_lock.acquire()
-        # seek to start of file read
-        self.file.seek(start)
-        # read to end of file if no end point provided
-        if end is None:
-            rtn = self.file.read()
-        #else read amount needed to reach end point
-        else:
-            rtn = self.file.read(end-start)
-        self.read_lock.release()
+        with self.read_lock:
+            with open(self.datapath, 'rb') as f:
+                offset = 0
+                # seek to start of file read
+                while f.tell() != end or offset != start:
+                    f.seek(start)
+                    offset = f.tell()
+                    rtn = f.read(end-start)
+                if f.tell() != end or offset != start:
+                    print("Locking isn't working. Expected ({}, {}), Received: ({}, {}), Off by ({}, {})".format(start, end, offset, f.tell(), offset - start, f.tell() - end), flush=True)
+                if self.flag:
+                    print("???", rtn)
+                    print(f.tell(), f.read(25))
         #TODO: @raulp figure out mem map byte string bug
         #if mem map'd need to decode byte string to string
         rtn = rtn.decode('utf-8')
         # rtn = str(rtn)
-        if self.mem_map:
-            rtn = rtn.decode('unicode_escape')
+        #if self.mem_map:
+        #    rtn = rtn.decode('unicode_escape')
         return rtn
 
