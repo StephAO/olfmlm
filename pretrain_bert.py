@@ -122,6 +122,10 @@ def get_batch(data):
     '''
     aux_labels = {}
     for mode, label in data['aux_labels'].items():
+        if label.shape[1] == 2:
+            label = np.concatenate([label[:, 0], label[:, 1]])
+        else:
+            label = label.squeeze()
         aux_labels[mode] = torch.autograd.Variable(label.long()).cuda()
     num_sentences = data['n']
     num_tokens = torch.tensor(sum(data['num_tokens']).item()).long().cuda()

@@ -488,7 +488,6 @@ class bert_dataset(data.Dataset):
         self.presplit_sentences = presplit_sentences
         self.corrupt_per_sentence = 0.10
         self.epoch = 0
-        self.permutations = {0: [0,1], 1: [1,0]} #{0: [0,1,2], 1: [1,2,0], 2: [2,0,1], 3: [1,0,2], 4: [0,2,1], 5: [2,1,0]}
         self.num_tokens_seen = 0
         self.idf_path = os.path.dirname(__file__) + "/../idf.p"
         with open(self.idf_path, "rb") as f:
@@ -501,16 +500,14 @@ class bert_dataset(data.Dataset):
         return self.ds_len
 
     def set_args(self, modes):
-        # TODO: full training defined by number of tokens seen - not by number of iterations
         print("setting up args, modes:", modes)
         self.modes = modes
         self.split_percent = 1.0
         self.corruption_rate = 0.
         self.num_sent_per_seq = 1
-        self.requires_two = False
-        self.shuffle = False
+        self.num_seq_returned = 1
         # Assert that at most 1 sentence distance loss exists
-        self.sentence_tasks = ["nsp", "psp", "sc", "rg", "sd", "so"]
+        self.sentence_tasks = ["nsp", "psp", "sc", "sd", "so"]
         assert [x in self.sentence_tasks for x in self.modes].count(True) <= 1
         # Masked Language Data (Default)
         self.mask_lm_prob = 0.15
@@ -525,14 +522,11 @@ class bert_dataset(data.Dataset):
         if "sd" in self.modes: # Sentence Distance Data
             self.split_percent = 1. / 3.
             self.num_sent_per_seq = 2
-            self.shuffle = True
         if "so" in self.modes: # Sentence Re-ordering Data
             self.split_percent = 1.0
             self.num_sent_per_seq = 2
-            self.shuffle = False
         if "rg" in self.modes or "fs" in self.modes: # Referential Game Data
-            self.num_sent_per_seq *= 2
-            self.requires_two = True
+            self.num_seq_returned = 2
         if "sc" in self.modes or "tc" in self.modes: # Sequence Consistency
             self.corruption_rate = 0.50
 
@@ -572,77 +566,79 @@ class bert_dataset(data.Dataset):
         
         return sample
 
+    def swap_order(self, tokens, token_labels, idx=0):
+        # Swap tokens and token labels at index with those at index + 1
+        tokens[idx], tokens[idx + 1] = tokens[idx + 1], tokens[idx]
+        for k, v in token_labels.items():
+            # TODO remove this assert
+            assert type(token_labels[k][idx], list)
+            token_labels[k][idx], token_labels[k][idx + 1]= v[idx + 1], v[idx]
+        return tokens, token_labels
+
     def create_random_sentencepair(self, rng):
         """
         fetches a random sentencepair corresponding to rng state similar to
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
         """
-        sentence_labels = {}
+        sentence_labels = {k: [] for k in  ["nsp", "psp", "sd", "so", "sc"]}
         token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
         # either split or corrupt not both
         split = rng.random()
         # Single sequence
-        if self.num_sent_per_seq == 1:
+        if self.num_sent_per_seq * self.num_seq_returned == 1:
             tokens, token_labels = self.get_sentence(self.max_seq_len, 1, rng)
 
         # Contiguous multiple sequences
         elif split <= self.split_percent:
             target_seq_len = self.max_seq_len * 2 if "rg" in self.modes or "fs" in self.modes else self.max_seq_len
-            tokens, token_labels = self.get_sentence(target_seq_len, self.num_sent_per_seq, rng)
-            sentence_labels["nsp"] = True
-            sentence_labels["sd"] = 0
-            if "so" in self.modes:
-                sentence_labels["so"] = rng.randint(0, len(self.permutations) - 1)
-                x = self.permutations[sentence_labels["so"]]
-                tokens = [tokens[x[0]], tokens[x[1]]]#, tokens[x[2]]]
-                for k, v in token_labels.items():
-                    token_labels[k] = [v[x[0]], v[x[1]]]
-            if "psp" in self.modes:
-                if rng.random() < 0.5:
-                    sentence_labels["psp"] = 0  # Next sentence
-                else:
-                    # Swap sequences
-                    sentence_labels["psp"] = 1  # Previous sentence
-                    assert len(tokens) == 2
-                    tokens[0], tokens[1] = tokens[1], tokens[0]
-                    for k, v in token_labels.items():
-                        token_labels[k] = v[1], v[0]
+            tokens, token_labels = self.get_sentence(target_seq_len, self.num_sent_per_seq * self.num_seq_returned, rng)
+            for i in range(self.num_seq_returned):
+                sentence_labels["nsp"].append(True)
+                sentence_labels["sd"].append(0)
+                if "psp" in self.modes or "so" in self.modes:
+                    if rng.random() < 0.5:
+                        # Next sentence
+                        sentence_labels["psp"].append(0)
+                        sentence_labels["so"].append(0)
+                    else:
+                        # Previous sentence
+                        # Swap sequences
+                        sentence_labels["psp"].append(1)
+                        sentence_labels["so"].append(1)
+                        tokens, token_labels = self.swap_order(tokens, token_labels, idx=i*2)
 
         # Same document, non-contiguous multiple sequences
         elif self.split_percent * 2 < 1 and split <= self.split_percent * 2:
             tokens, token_labels = self.get_sentence(self.max_seq_len * 1.5, self.num_sent_per_seq,
                                                                   rng, non_contiguous=True)
-            sentence_labels["sd"] = 1
-            if "psp" in self.modes:
-                if rng.random() < 0.5:
-                    sentence_labels["psp"] = 3 # Same document after
-                else:
-                    sentence_labels["psp"] = 4 # Same document before
-                    # Swap sequences
-                    assert len(tokens) == 2
-                    tokens[0], tokens[1] = tokens[1], tokens[0]
-                    for k, v in token_labels.items():
-                        token_labels[k] = v[1], v[0]
+            for i in range(self.num_seq_returned):
+                sentence_labels["sd"].append(1)
+                if "psp" in self.modes:
+                    if rng.random() < 0.5:
+                        sentence_labels["psp"].append(3) # Same document after
+                    else:
+                        sentence_labels["psp"].append(4) # Same document before
+                        # Swap sequences
+                        tokens, token_labels = self.swap_order(tokens, token_labels, idx=i*2)
         # Multiple sequences from different documents
         else:
             tokens = []
-            for i in range(self.num_sent_per_seq):
-                tok, tok_labels = self.get_sentence(self.max_seq_len // self.num_sent_per_seq, 1, rng, diff_doc=True)
-                tokens += tok
-                [token_labels[k].extend(v) for k, v in tok_labels.items()]
-            if self.shuffle:
-                rng.shuffle(tokens)
+            for i in range(self.num_seq_returned):
+                for j in range(self.num_sent_per_seq):
+                    tok, tok_labels = self.get_sentence(self.max_seq_len // self.num_sent_per_seq, 1, rng, diff_doc=True)
+                    tokens += tok
+                    [token_labels[k].extend(v) for k, v in tok_labels.items()]
 
-            sentence_labels["nsp"] = False
-            sentence_labels["sd"] = 2
-            sentence_labels["psp"] = 2
+                sentence_labels["nsp"].append(False)
+                sentence_labels["sd"].append(2)
+                sentence_labels["psp"].append(2)
 
         # Apply corruption
         corrupted = bool(rng.random() < self.corruption_rate)
         ids = []
         token_labels["tc"] = []
         if corrupted:
-            sentence_labels["sc"] = True
+            sentence_labels["sc"] += [True] * self.num_seq_returned
             for i in range(len(tokens)):
                 cor_ids, cor_lab = self.corrupt_seq(tokens[i], rng)
                 ids.append(cor_ids)
@@ -651,7 +647,7 @@ class bert_dataset(data.Dataset):
                 token_labels["tc"][i][ids[i]] = 1. #float(cor_lab)
                 token_labels["tc"][i] = token_labels["tc"][i].tolist()
         else:
-            sentence_labels["sc"] = False
+            sentence_labels["sc"] += [False] * self.num_seq_returned
             for i in range(len(tokens)):
                 token_labels["tc"].append(np.zeros_like(tokens[i]).tolist())
 
@@ -915,13 +911,13 @@ class bert_dataset(data.Dataset):
         """
         token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
         # Concatenate sequences if requested
-        if len(tokens) >= 4:
+        if len(tokens) == 4:
             half = int(len(tokens) / 2)
             t1, tt1, tl1 = self.concat_sentences(tokens[:half], token_types[:half], token_labels[:half])
             t2, tt2, tl2 = self.concat_sentences(tokens[half:], token_types[half:], token_labels[half:])
             tokens, token_types, token_labels = t1 + t2, tt1 + tt2, {k: tl1[k] + tl2[k] for k in token_labels}
-        elif len(tokens) >= 2 and not self.requires_two:
-            tokens, token_types, token_labels = self.concat_sentences(tokens, token_types[:half], token_labels[:half])
+        elif len(tokens) == 2 and self.num_seq_returned == 1:
+            tokens, token_types, token_labels = self.concat_sentences(tokens, token_types, token_labels)
 
 
 

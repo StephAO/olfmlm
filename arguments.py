@@ -281,7 +281,7 @@ def get_args():
             args.modes = "mlm"
         else:
             args.modes = "mlm," + args.model_type
-    if args.model_type in ["rg", "fs"]:
+    if "rg" in args.modes or "fs" in args.modes:
         args.batch_size = args.batch_size // 2
     if args.num_workers is None:
         # Find number of cpus available (taken from second answer):
