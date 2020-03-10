@@ -289,7 +289,7 @@ def get_args():
         m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
                       open('/proc/self/status').read())
         nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
-        args.num_workers = int(0.80 * nw) # leave cpu for main process
+        args.num_workers = int(nw - 2) # leave cpu for main process
 
     assert not ((args.continual_learning and args.alternating) or (args.continual_learning and args.incremental))
 

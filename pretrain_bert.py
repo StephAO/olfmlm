@@ -123,7 +123,7 @@ def get_batch(data):
     aux_labels = {}
     for mode, label in data['aux_labels'].items():
         if label.shape[1] == 2:
-            label = np.concatenate([label[:, 0], label[:, 1]])
+            label = torch.cat([label[:, 0], label[:, 1]])
         else:
             label = label.squeeze()
         aux_labels[mode] = torch.autograd.Variable(label.long()).cuda()
@@ -315,7 +315,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     train_data.dataset.set_args(modes)
     sent_tasks = [m for m in modes if m in train_data.dataset.sentence_tasks]
-    tok_tasks = [m for m in modes if m not in ([train_data.dataset.sentence_tasks] + ["mlm"])]
+    tok_tasks = [m for m in modes if m not in train_data.dataset.sentence_tasks + ["mlm"]]
 
     data_iters = iter(train_data)
 
@@ -343,7 +343,6 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             # test 5 when incremental is False, test 6 when incremental is True
             sent_task = [] if len(sent_tasks) == 0 else [sent_tasks[iteration % len(sent_tasks)]]
             modes_ = ['mlm'] + sent_task + tok_tasks
-
 
         while True:
             try:
@@ -396,10 +395,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             log_string += ' learning rate {:.3E} |'.format(learning_rate)
             for mode, v in avg_loss.items():
                 log_string += ' {} loss {:.3E} |'.format(mode, v)
-            #pid = os.getpid()
-            #py = psutil.Process(pid)
-            #memory_use = py.memory_info()[0]/2.**30 
-            #log_string += ' total cpu used: {}% ,  this process: {}GB |'.format(psutil.cpu_percent(), memory_use) 
+
             print(log_string, flush=True)
             #print(iteration)
             total_losses = {}

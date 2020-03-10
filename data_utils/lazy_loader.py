@@ -187,11 +187,6 @@ class lazy_array_loader(object):
                     rtn = f.read(end-start)
                 if f.tell() != end or offset != start:
                     print("Locking isn't working. Expected ({}, {}), Received: ({}, {}), Off by ({}, {})".format(start, end, offset, f.tell(), offset - start, f.tell() - end), flush=True)
-        #TODO: @raulp figure out mem map byte string bug
-        #if mem map'd need to decode byte string to string
         rtn = rtn.decode('utf-8')
-        rtn = str(rtn)
-        if self.mem_map:
-           rtn = rtn.decode('unicode_escape')
         return rtn
 

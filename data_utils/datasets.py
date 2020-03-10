@@ -516,7 +516,7 @@ class bert_dataset(data.Dataset):
         if "nsp" in self.modes: # Next Sentence Prediction Data
             self.split_percent = 0.5
             self.num_sent_per_seq = 2
-        if "psp" in self.modes:  # Next Sentence Prediction Data
+        if "psp" in self.modes:  # Prev Sentence Prediction Data
             self.split_percent = 2. / 3.
             self.num_sent_per_seq = 2
         if "sd" in self.modes: # Sentence Distance Data
@@ -550,8 +550,8 @@ class bert_dataset(data.Dataset):
                                               self.vocab_words, rng, do_not_mask_tokens=corrupted_ids)
 
         
-        aux_labels = {k: int(v) if not isinstance(v, np.ndarray) else v for k, v in sentence_labels.items()
-                      if k in self.modes}
+        aux_labels = {k: np.array(list(map(int, v))) if not isinstance(v, np.ndarray) else v 
+                      for k, v in sentence_labels.items() if k in self.modes}
         aux_labels.update({k: np.array(v) for k, v in token_labels.items() if k in self.modes})
         sample = {'aux_labels': aux_labels, 'n': len(tokens),'num_tokens': num_tokens}
 
@@ -560,19 +560,14 @@ class bert_dataset(data.Dataset):
                            'task_' + str(i): np.full_like(tokens[i], self.task_id),
                            'mask_' + str(i): np.array(mask[i]), 'mask_labels_' + str(i): np.array(mask_labels[i]),
                            'pad_mask_' + str(i): np.array(pad_mask[i])})
-        if idx % 100 == 0 and False:
-            print("Tokens (min, mean, max):", np.min(self.avg_len), np.mean(self.avg_len), np.max(self.avg_len))
-            print("Sampled mean tf: {}".format(np.mean(self._all_tf)))
-        
+
         return sample
 
     def swap_order(self, tokens, token_labels, idx=0):
         # Swap tokens and token labels at index with those at index + 1
         tokens[idx], tokens[idx + 1] = tokens[idx + 1], tokens[idx]
-        for k, v in token_labels.items():
-            # TODO remove this assert
-            assert type(token_labels[k][idx], list)
-            token_labels[k][idx], token_labels[k][idx + 1]= v[idx + 1], v[idx]
+        for k in token_labels:
+            token_labels[k][idx], token_labels[k][idx + 1] = token_labels[k][idx + 1], token_labels[k][idx]
         return tokens, token_labels
 
     def create_random_sentencepair(self, rng):
@@ -592,6 +587,7 @@ class bert_dataset(data.Dataset):
         elif split <= self.split_percent:
             target_seq_len = self.max_seq_len * 2 if "rg" in self.modes or "fs" in self.modes else self.max_seq_len
             tokens, token_labels = self.get_sentence(target_seq_len, self.num_sent_per_seq * self.num_seq_returned, rng)
+            
             for i in range(self.num_seq_returned):
                 sentence_labels["nsp"].append(True)
                 sentence_labels["sd"].append(0)
@@ -762,14 +758,15 @@ class bert_dataset(data.Dataset):
             output.append(char)
         return "".join(output)
 
-    def get_tf(self, sent, doc):
-        tf = {}
-        for word in doc:   
-            tf[word] = tf.get(word, 0) + 1
-        tf = [tf[w] for w in sent]
-        return tf
+    def count_doc_tfs(self, doc):
+        # Count term frequency for given document
+        doc_tokens = self.tokenizer.text_tokenizer.tokenize(" ".join(doc))
+        self.doc_tf = {}
+        for tok in doc_tokens:
+            self.doc_tf[tok] = self.doc_tf.get(tok, 0) + 1
 
     def scale(self, vector):
+        # Scale a list of floats (vector) to floats between 0 and 10
         if len(vector) == 0:
             return vector
         scale = 10
@@ -788,8 +785,7 @@ class bert_dataset(data.Dataset):
         if "wlen" in self.modes:
             labels["wlen"] = [len(w.strip("#")) for w in tokens]
         if "tf" in self.modes or "tf_idf" in self.modes:
-            doc_tokens = self.tokenizer.text_tokenizer.tokenize(" ".join(doc)) 
-            tf = self.get_tf(tokens, doc_tokens)
+            tf = [self.doc_tf[tok] for tok in tokens]
             idf = [self.idfs[tok] for tok in ids]
             tf_idf = [tf[i] * idf[i] for i in range(len(tokens))]
             if "tf" in self.modes:
@@ -830,10 +826,12 @@ class bert_dataset(data.Dataset):
             idx = rng.randint(0, self.ds_len - 1)
         doc = self.sentence_split(self.get_doc(idx))
 
-        # Get enough sentences for target length
-        while len(doc) < 4:
+        # If corpora is filtered properly, this should never occur
+        while len(doc) < num_sents:
             print(idx, doc, "YIKES")
             doc = self.sentence_split(self.get_doc(rng.randint(0, self.ds_len - 1)))
+
+        self.count_doc_tfs(doc)
 
         end_idx = rng.randint(0, len(doc) - 1)
         start_idx = end_idx - 1
@@ -859,15 +857,11 @@ class bert_dataset(data.Dataset):
             else:
                 break
 
+            if len(sentence) == 0:
+                print(doc)
             total_length += len(sentence)
         
-
-        if len(sentences) < num_sent_required:
-            print(idx, doc)
-            #print(len(sentences), num_sent_required)
-            # TODO get rid of this
-            #print(doc)
-            sentences = [self.sentence_tokenize("Data processing is hard."), self.sentence_tokenize("Sorry about the mistakes.")]
+        assert len(sentences) >= num_sent_required
 
         # Get split indices (i.e. subdivide the set of sentences)
         num_sent = len(sentences)
@@ -876,6 +870,7 @@ class bert_dataset(data.Dataset):
             split_dist = self.get_discrete_normal_distributions(num_sent - 1, num_sent_required)
             split_idxs = np.random.choice(list(range(1, num_sent)), num_sent_required - 1, replace=False, p=split_dist)
             split_idxs = [0] + list(split_idxs) + [num_sent]
+            split_idxs = sorted(split_idxs)
 
         # Combine grouped sentences
         tokens = []
@@ -909,18 +904,15 @@ class bert_dataset(data.Dataset):
         Mask sequence pair for BERT training according to:
         https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L338
         """
-        token_types = [[self.tokenizer.get_type('str' + str(i)).Id] * len(tokens[i]) for i in range(len(tokens))]
+        token_types = [[self.tokenizer.get_type('str' + str(i % 2)).Id] * len(tokens[i]) for i in range(len(tokens))]
         # Concatenate sequences if requested
         if len(tokens) == 4:
             half = int(len(tokens) / 2)
-            t1, tt1, tl1 = self.concat_sentences(tokens[:half], token_types[:half], token_labels[:half])
-            t2, tt2, tl2 = self.concat_sentences(tokens[half:], token_types[half:], token_labels[half:])
+            t1, tt1, tl1 = self.concat_sentences(tokens[:half], token_types[:half], {k: v[:half] for k, v in token_labels.items()})
+            t2, tt2, tl2 = self.concat_sentences(tokens[half:], token_types[half:], {k: v[half:] for k, v in token_labels.items()})
             tokens, token_types, token_labels = t1 + t2, tt1 + tt2, {k: tl1[k] + tl2[k] for k in token_labels}
         elif len(tokens) == 2 and self.num_seq_returned == 1:
             tokens, token_types, token_labels = self.concat_sentences(tokens, token_types, token_labels)
-
-
-
 
         mask = [[] for _ in range(len(tokens))]
         mask_labels = [[] for _ in range(len(tokens))]
