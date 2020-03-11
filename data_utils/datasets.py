@@ -506,6 +506,7 @@ class bert_dataset(data.Dataset):
         self.corruption_rate = 0.
         self.num_sent_per_seq = 1
         self.num_seq_returned = 1
+        self.trigram_shuffle_rate = 0
         # Assert that at most 1 sentence distance loss exists
         self.sentence_tasks = ["nsp", "psp", "sc", "sd", "so"]
         assert [x in self.sentence_tasks for x in self.modes].count(True) <= 1
@@ -529,6 +530,8 @@ class bert_dataset(data.Dataset):
             self.num_seq_returned = 2
         if "sc" in self.modes or "tc" in self.modes: # Sequence Consistency
             self.corruption_rate = 0.50
+        if "TGS" in self.modes:
+            self.trigram_shuffle_rate = 0.05
 
 
     def __getitem__(self, idx):
@@ -545,7 +548,7 @@ class bert_dataset(data.Dataset):
             tokens, sentence_labels, token_labels, corrupted_ids = self.create_random_sentencepair(rng)
 
         # join sentence pair, mask, and pad
-        tokens, token_types, token_labels, mask, mask_labels, pad_mask, num_tokens = \
+        tokens, token_types, token_labels, mask, tgs_mask, mask_labels, pad_mask, num_tokens = \
             self.create_masked_lm_predictions(tokens, token_labels, self.mask_lm_prob, self.max_preds_per_seq,
                                               self.vocab_words, rng, do_not_mask_tokens=corrupted_ids)
 
@@ -559,7 +562,7 @@ class bert_dataset(data.Dataset):
             sample.update({'text_' + str(i): np.array(tokens[i]), 'types_' + str(i): np.array(token_types[i]),
                            'task_' + str(i): np.full_like(tokens[i], self.task_id),
                            'mask_' + str(i): np.array(mask[i]), 'mask_labels_' + str(i): np.array(mask_labels[i]),
-                           'pad_mask_' + str(i): np.array(pad_mask[i])})
+                           'tgs_mask_' + str(i): np.array(tgs_mask[i]), 'pad_mask_' + str(i): np.array(pad_mask[i])})
 
         return sample
 
@@ -892,17 +895,62 @@ class bert_dataset(data.Dataset):
         return tokens, token_labels
 
     def concat_sentences(self, tokens, token_types, token_labels):
+        """Concatenate tokens and associated lists. E.g. [[1,2,3],[4,5,6]] -> [[1,2,3,4,5,6]]"""
         assert len(tokens) >= 2
         tokens = [reduce(lambda a, b: a + [self.tokenizer.get_command('sep').Id] + b, tokens)]
         token_types = [reduce(lambda a, b: a + [a[0]] + b, token_types)]
         token_labels = {k: [reduce(lambda a, b: a + [0.] + b, v)] for k, v in token_labels.items()}
         return tokens, token_types, token_labels
 
-    def create_masked_lm_predictions(self, tokens, token_labels, mask_lm_prob, max_preds_per_seq,
-                                     vocab_words, rng, concat=False, do_not_mask_tokens=[]):
+    def shuffle_trigrams(self, tokens, token_types, token_labels, i, rng):
         """
-        Mask sequence pair for BERT training according to:
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L338
+        Shuffle trigrams in spot with a rate of self.trigram_shuffle_rate.
+        Returns mask (which tokens to look for loss). Labels (which shuffle permutation used) is added to token labels.
+        Labels and masks are defined on the 3rd token of the sequence:
+        e.g. starting with [1,2,3,4,5] with one shuffle to create [1,2,5,4,3]
+             would have labels: [0,0,0,0,5] and mask [0,0,0,0,1]
+        """
+        if self.trigram_shuffle_rate == 0:
+            return [0] * len(tokens[i])
+        # 6 permutations
+        classes = {0: [2, 1, 0], 1: [0, 2, 1], 2: [1, 0, 2], 3: [1, 2, 0], 4: [2, 0, 1], 5: [0, 1, 2]}
+        labels = []
+        mask = []
+        idx = 0
+        valid_seq_len = 0
+        while idx < len(tokens[i]):
+            if tokens[i][idx] in [self.tokenizer.get_command('ENC').Id, self.tokenizer.get_command('sep').Id,
+                                  self.tokenizer.get_command('pad').Id, self.tokenizer.get_command('MASK').Id]:
+                valid_seq_len = 0
+            else:
+                valid_seq_len += 1
+
+            if valid_seq_len >= 3 and rng.random() < self.trigram_shuffle_rate:
+                valid_seq_len = 0
+                # Shuffle
+                label = rng.randint(0,5)
+                perm = classes[label]
+                tokens[i][idx-2 : idx + 1] = [tokens[i][idx - p] for p in perm]
+                token_labels[i][idx-2 : idx + 1] = [token_labels[i][idx - p] for p in perm]
+                for k in token_labels:
+                    token_labels[k][i][idx - 2: idx + 1] = [token_labels[k][i][idx - p] for p in perm]
+                labels.append(label)
+                mask.append(1)
+            else:
+                labels.append(0)
+                mask.append(0)
+
+        assert len(labels) == len(mask) == len(tokens[i])
+        if "tgs" not in token_labels:
+            token_labels["tgs"] = [None] * len(tokens)
+        token_labels["tgs"][i] = labels
+
+        return mask
+
+    def create_masked_lm_predictions(self, tokens, token_labels, mask_lm_prob, max_preds_per_seq,
+                                     vocab_words, rng, do_not_mask_tokens=[]):
+        """
+        Mask sequence pair for BERT training. Includes necessary concatenation, padding, and trigram shuffling.
         """
         token_types = [[self.tokenizer.get_type('str' + str(i % 2)).Id] * len(tokens[i]) for i in range(len(tokens))]
         # Concatenate sequences if requested
@@ -915,6 +963,7 @@ class bert_dataset(data.Dataset):
             tokens, token_types, token_labels = self.concat_sentences(tokens, token_types, token_labels)
 
         mask = [[] for _ in range(len(tokens))]
+        tgs_mask = [[] for _ in range(len(tokens))]
         mask_labels = [[] for _ in range(len(tokens))]
         pad_mask = [[] for _ in range(len(tokens))]
         num_tokens = 0
@@ -948,7 +997,10 @@ class bert_dataset(data.Dataset):
                 mask_labels[i][idx] = label
                 num_masked += 1
 
-        return tokens, token_types, token_labels, mask, mask_labels, pad_mask, num_tokens
+            # StructBERT Tri-grams
+            tgs_mask[i] = self.shuffle_trigrams(tokens, token_types, token_labels, i, rng)
+
+        return tokens, token_types, token_labels, mask, tgs_mask, mask_labels, pad_mask, num_tokens
 
     def corrupt_replace(self, tokens, rng, num_to_corrupt):
         indices = []

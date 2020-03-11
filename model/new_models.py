@@ -16,7 +16,7 @@ class BertSentHead(nn.Module):
 class BertHeadTransform(nn.Module):
     def __init__(self, config, input_size=None):
         super(BertHeadTransform, self).__init__()
-        input_size = input_size if input_size else config.hidden_size
+
         self.dense = nn.Linear(input_size, config.hidden_size)
         self.transform_act_fn = ACT2FN[config.hidden_act] \
             if isinstance(config.hidden_act, str) else config.hidden_act
@@ -49,10 +49,11 @@ class BertLMTokenHead(nn.Module):
 
 
 class BertTokenHead(nn.Module):
-    def __init__(self, config, num_classes=2):
+    def __init__(self, config, num_classes=2, input_size=None):
         super(BertTokenHead, self).__init__()
+        input_size = input_size if input_size else config.hidden_size
         self.transform = BertHeadTransform(config)
-        self.decoder = nn.Linear(config.hidden_size, num_classes)
+        self.decoder = nn.Linear(input_size, num_classes)
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -145,6 +146,8 @@ class Bert(PreTrainedBertModel):
         if "fs" in modes:
             self.sent["fs"] = BertHeadTransform(config)
             self.tok["fs"] = BertHeadTransform(config)
+        if "tgs" in modes:
+            self.tok["tgs"] = BertTokenHead(config, num_classes=6, input_size=config.hidden_size * 3)
         self.apply(self.init_bert_weights)
 
     def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
@@ -203,6 +206,14 @@ class Bert(PreTrainedBertModel):
             scores["sc"] = self.sent["sc"](pooled_output)
         if "tc" in modes:
             scores["tc"] = self.tok["tc"](sequence_output)
+        if "tgs" in modes:
+            output_concats = [torch.cat((sequence_output[:, 0], sequence_output[:, 0], sequence_output[:, 0]), dim=-1)]
+            output_concats += [torch.cat((sequence_output[:, 0], sequence_output[:, 0], sequence_output[:, 1]), dim=-1)]
+            for i in range(2, sequence_output.shape[1]):
+                output_concats += [torch.cat((sequence_output[:, i - 2], sequence_output[:, i - 1],
+                                              sequence_output[:, i]), dim=-1)]
+            scores["tgs"] = self.tok(output_concats)
+
         return scores
 
     def cosine_similarity(self, a, b):

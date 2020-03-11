@@ -120,6 +120,7 @@ def get_batch(data):
     to the seq_len dimension in the LSTM. A Variable representing an appropriate
     shard reset mask of the same dimensions is also returned.
     '''
+    # TODO Add trigram mask
     aux_labels = {}
     for mode, label in data['aux_labels'].items():
         if label.shape[1] == 2:
@@ -133,6 +134,7 @@ def get_batch(data):
     types = []
     tasks = []
     loss_mask = []
+    tgs_mask = []
     lm_labels = []
     att_mask = []
     for i in range(min(num_sentences)):
@@ -143,11 +145,13 @@ def get_batch(data):
         att_mask.append(1 - torch.autograd.Variable(data['pad_mask' + suffix].byte()).cuda())
         lm_labels.append((data['mask_labels' + suffix]).long())
         loss_mask.append((data['mask' + suffix]).float())
+        tgs_mask.append((data['tgs_mask' + suffix]).float())
 
     lm_labels = torch.autograd.Variable(torch.cat(lm_labels, dim=0).long()).cuda()
     loss_mask = torch.autograd.Variable(torch.cat(loss_mask, dim=0).float()).cuda()
+    tgs_mask = torch.autograd.Variable(torch.cat(tgs_mask, dim=0).float()).cuda()
 
-    return (tokens, types, tasks, aux_labels, loss_mask, lm_labels, att_mask, num_tokens)
+    return (tokens, types, tasks, aux_labels, loss_mask, tgs_mask, lm_labels, att_mask, num_tokens)
 
 
 def forward_step(data, model, criterion, modes, args):
@@ -156,7 +160,7 @@ def forward_step(data, model, criterion, modes, args):
     # Get the batch.
     batch = get_batch(data)
 
-    tokens, types, tasks, aux_labels, loss_mask, lm_labels, att_mask, num_tokens = batch
+    tokens, types, tasks, aux_labels, loss_mask, tgs_mask, lm_labels, att_mask, num_tokens = batch
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     if "fs" in modes:
@@ -169,10 +173,14 @@ def forward_step(data, model, criterion, modes, args):
     for mode, score in scores.items():
         if mode in ["mlm", "sbo"]:
             mlm_loss = criterion_cls(score.view(-1, args.data_size).contiguous().float(),
-                                     lm_labels.contiguous().view(-1).contiguous())
-            loss_mask = loss_mask.contiguous()
-            loss_mask = loss_mask.view(-1)
+                                     lm_labels.view(-1).contiguous())
+            loss_mask = loss_mask.view(-1).contiguous()
             losses[mode] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
+        elif mode == "tgs":
+            tgs_loss = criterion_cls(score.view(-1, 6).contiguous().float(),
+                                     aux_labels[mode].view(-1).contiguous())
+            tgs_loss = tgs_loss.view(-1).contiguous()
+            losses[mode] = torch.sum(tgs_loss * tgs_mask.view(-1).float() / tgs_mask.sum())
         elif mode in ["fs", "wlen", "tf", "tf_idf"]: # use regression
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
