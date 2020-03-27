@@ -16,7 +16,7 @@ class BertSentHead(nn.Module):
 class BertHeadTransform(nn.Module):
     def __init__(self, config, input_size=None):
         super(BertHeadTransform, self).__init__()
-
+        input_size = input_size if input_size else config.hidden_size
         self.dense = nn.Linear(input_size, config.hidden_size)
         self.transform_act_fn = ACT2FN[config.hidden_act] \
             if isinstance(config.hidden_act, str) else config.hidden_act
@@ -52,8 +52,8 @@ class BertTokenHead(nn.Module):
     def __init__(self, config, num_classes=2, input_size=None):
         super(BertTokenHead, self).__init__()
         input_size = input_size if input_size else config.hidden_size
-        self.transform = BertHeadTransform(config)
-        self.decoder = nn.Linear(input_size, num_classes)
+        self.transform = BertHeadTransform(config, input_size=input_size)
+        self.decoder = nn.Linear(config.hidden_size, num_classes)
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -212,7 +212,8 @@ class Bert(PreTrainedBertModel):
             for i in range(2, sequence_output.shape[1]):
                 output_concats += [torch.cat((sequence_output[:, i - 2], sequence_output[:, i - 1],
                                               sequence_output[:, i]), dim=-1)]
-            scores["tgs"] = self.tok(output_concats)
+            output_concats = torch.stack(output_concats, dim=1)
+            scores["tgs"] = self.tok["tgs"](output_concats)
 
         return scores
 

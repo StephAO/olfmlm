@@ -493,7 +493,7 @@ class bert_dataset(data.Dataset):
         with open(self.idf_path, "rb") as f:
             self.idfs = pickle.load(f)
         self._all_tf = []
-        self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf"]
+        self.task_list = ["mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf", "tgs"]
         self.task_dict = dict(zip(self.task_list, range(1, len(self.task_list) + 1)))
 	
     def __len__(self):
@@ -530,7 +530,7 @@ class bert_dataset(data.Dataset):
             self.num_seq_returned = 2
         if "sc" in self.modes or "tc" in self.modes: # Sequence Consistency
             self.corruption_rate = 0.50
-        if "TGS" in self.modes:
+        if "tgs" in self.modes:
             self.trigram_shuffle_rate = 0.05
 
 
@@ -794,7 +794,7 @@ class bert_dataset(data.Dataset):
             if "tf" in self.modes:
                 labels["tf"] = self.scale(tf)
             elif "tf_idf" in self.modes:
-                labels["tf_idf"] = self.scale(tf_idf)
+                labels["tf_idf"] = tf_idf #self.scale(tf_idf)
 
         return labels
 
@@ -911,7 +911,7 @@ class bert_dataset(data.Dataset):
              would have labels: [0,0,0,0,5] and mask [0,0,0,0,1]
         """
         if self.trigram_shuffle_rate == 0:
-            return [0] * len(tokens[i])
+            return []
         # 6 permutations
         classes = {0: [2, 1, 0], 1: [0, 2, 1], 2: [1, 0, 2], 3: [1, 2, 0], 4: [2, 0, 1], 5: [0, 1, 2]}
         labels = []
@@ -931,7 +931,7 @@ class bert_dataset(data.Dataset):
                 label = rng.randint(0,5)
                 perm = classes[label]
                 tokens[i][idx-2 : idx + 1] = [tokens[i][idx - p] for p in perm]
-                token_labels[i][idx-2 : idx + 1] = [token_labels[i][idx - p] for p in perm]
+                token_types[i][idx-2 : idx + 1] = [token_types[i][idx - p] for p in perm]
                 for k in token_labels:
                     token_labels[k][i][idx - 2: idx + 1] = [token_labels[k][i][idx - p] for p in perm]
                 labels.append(label)
@@ -939,6 +939,8 @@ class bert_dataset(data.Dataset):
             else:
                 labels.append(0)
                 mask.append(0)
+
+            idx += 1
 
         assert len(labels) == len(mask) == len(tokens[i])
         if "tgs" not in token_labels:

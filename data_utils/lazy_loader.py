@@ -18,7 +18,7 @@ import mmap
 import pickle as pkl
 import time
 from itertools import accumulate
-from filelock import FileLock
+from threading import Lock
 
 import torch
 
@@ -114,7 +114,7 @@ class lazy_array_loader(object):
         self.lens = pkl.load(open(lenpath, 'rb'))
         self.ends = list(accumulate(self.lens))
         self.dumb_ends = list(self.ends)
-        self.read_lock = FileLock("bert_data_filelock.txt")
+        self.read_lock = Lock()
         self.process_fn = map_fn
         self.map_fn = map_fn
         self._tokenizer = None

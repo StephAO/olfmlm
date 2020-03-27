@@ -97,7 +97,8 @@ def setup_model_and_optimizer(args, tokenizer):
     optimizer = get_optimizer(model, args)
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
     criterion_cls = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
-    criterion_reg = torch.nn.MSELoss(reduce=False)
+    criterion_reg = torch.nn.L1Loss(reduce=False)
+
     criterion = (criterion_cls, criterion_reg)
 
     if args.load is not None:
@@ -184,6 +185,8 @@ def forward_step(data, model, criterion, modes, args):
         elif mode in ["fs", "wlen", "tf", "tf_idf"]: # use regression
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
+            #if mode in ["fs", "tf_idf"]:
+            #    losses[mode] = torch.sqrt(losses[mode] + 1e-8)
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
             #score = score.view(-1, 4) if mode in ["tc", "cap"] else score
@@ -362,8 +365,8 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                               modes_,
                               args)
                 break
-            except (TypeError, RuntimeError) as e:
-                print("Ooops, caught: '{}', continuing...".format(e))
+            #except (TypeError, RuntimeError) as e:
+            #    print("Ooops, caught: '{}', continuing...".format(e))
             except StopIteration:
                 data_iters = iter(train_data)
 
