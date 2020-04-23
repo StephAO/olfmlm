@@ -97,7 +97,7 @@ def setup_model_and_optimizer(args, tokenizer):
     optimizer = get_optimizer(model, args)
     lr_scheduler = get_learning_rate_scheduler(optimizer, args)
     criterion_cls = torch.nn.CrossEntropyLoss(reduce=False, ignore_index=-1)
-    criterion_reg = torch.nn.L1Loss(reduce=False)
+    criterion_reg = torch.nn.MSELoss(reduce=False)
 
     criterion = (criterion_cls, criterion_reg)
 

@@ -773,7 +773,7 @@ class bert_dataset(data.Dataset):
         if len(vector) == 0:
             return vector
         scale = 10
-        scaling = lambda x: ((scale - 1) * (x - _min) / (_max - _min + 1e-8)) + 1
+        scaling = lambda x: ((scale) * (x - _min) / (_max - _min + 1e-8))
         _min = min(vector)
         _max = max(vector)
         return [scaling(w) for w in vector]
@@ -794,7 +794,7 @@ class bert_dataset(data.Dataset):
             if "tf" in self.modes:
                 labels["tf"] = self.scale(tf)
             elif "tf_idf" in self.modes:
-                labels["tf_idf"] = tf_idf #self.scale(tf_idf)
+                labels["tf_idf"] = self.scale(tf_idf)
 
         return labels
 

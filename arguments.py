@@ -85,7 +85,7 @@ def add_training_args(parser):
                        'with larger models and sequences')
     group.add_argument('--clip-grad', type=float, default=1.0,
                        help='gradient clipping')
-    group.add_argument('--epochs', type=int, default=10,
+    group.add_argument('--epochs', type=int, default=32,
                        help='upper epoch limit')
     group.add_argument('--log-interval', type=int, default=1000000,
                        help='report interval')
