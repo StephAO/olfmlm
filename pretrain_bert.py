@@ -178,7 +178,7 @@ def forward_step(data, model, criterion, modes, args):
             loss_mask = loss_mask.view(-1).contiguous()
             losses[mode] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
         elif mode == "tgs":
-            tgs_loss = criterion_cls(score.view(-1, 6).contiguous().float(),
+            tgs_loss = criterion_cls(score.view(-1, 2).contiguous().float(),
                                      aux_labels[mode].view(-1).contiguous())
             tgs_loss = tgs_loss.view(-1).contiguous()
             losses[mode] = torch.sum(tgs_loss * tgs_mask.view(-1).float() / tgs_mask.sum())

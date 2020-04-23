@@ -147,7 +147,7 @@ class Bert(PreTrainedBertModel):
             self.sent["fs"] = BertHeadTransform(config)
             self.tok["fs"] = BertHeadTransform(config)
         if "tgs" in modes:
-            self.tok["tgs"] = BertTokenHead(config, num_classes=6, input_size=config.hidden_size * 3)
+            self.tok["tgs"] = BertTokenHead(config, num_classes=2, input_size=config.hidden_size * 2)
         self.apply(self.init_bert_weights)
 
     def forward(self, modes, input_ids, token_type_ids=None, task_ids=None, attention_mask=None, masked_lm_labels=None,
@@ -207,11 +207,10 @@ class Bert(PreTrainedBertModel):
         if "tc" in modes:
             scores["tc"] = self.tok["tc"](sequence_output)
         if "tgs" in modes:
-            output_concats = [torch.cat((sequence_output[:, 0], sequence_output[:, 0], sequence_output[:, 0]), dim=-1)]
-            output_concats += [torch.cat((sequence_output[:, 0], sequence_output[:, 0], sequence_output[:, 1]), dim=-1)]
-            for i in range(2, sequence_output.shape[1]):
-                output_concats += [torch.cat((sequence_output[:, i - 2], sequence_output[:, i - 1],
-                                              sequence_output[:, i]), dim=-1)]
+            output_concats = [torch.cat((sequence_output[:, 0], sequence_output[:, 0]), dim=-1)]
+            # output_concats += [torch.cat((sequence_output[:, 0], sequence_output[:, 0], sequence_output[:, 1]), dim=-1)]
+            for i in range(1, sequence_output.shape[1]):
+                output_concats += [torch.cat((sequence_output[:, i - 1], sequence_output[:, i]), dim=-1)]
             output_concats = torch.stack(output_concats, dim=1)
             scores["tgs"] = self.tok["tgs"](output_concats)
 
