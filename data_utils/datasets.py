@@ -470,7 +470,6 @@ class bert_dataset(data.Dataset):
         max_seq_len (int): maximum sequence length to use for a sentence pair
         mask_lm_prob (float): proportion of tokens to mask for masked LM
         max_preds_per_seq (int): Maximum number of masked tokens per sentence pair. Default: math.ceil(max_seq_len*mask_lm_prob/10)*10
-
     """
     def __init__(self, ds, max_seq_len=512, mask_lm_prob=.15, max_preds_per_seq=None, short_seq_prob=0.01,
                  presplit_sentences=False, max_dataset_size=None, **kwargs):
@@ -575,8 +574,7 @@ class bert_dataset(data.Dataset):
 
     def create_random_sentencepair(self, rng):
         """
-        fetches a random sentencepair corresponding to rng state similar to
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L248-L294
+        fetches a random sentencepair based on requirements of modes
         """
         sentence_labels = {k: [] for k in  ["nsp", "psp", "sd", "so", "sc"]}
         token_labels = {k: [] for k in self.modes if k in ["cap", "wlen", "tf", "tf_idf"]}
@@ -676,8 +674,7 @@ class bert_dataset(data.Dataset):
 
     def truncate_sequence(self, tokens, token_types, token_labels, tl_idx, rng):
         """
-        Truncate sequence pair according to original BERT implementation:
-        https://github.com/google-research/bert/blob/master/create_pretraining_data.py#L391
+        Truncate sequence pair
         """
         max_num_tokens = self.max_seq_len - 2
         while True:
@@ -703,7 +700,6 @@ class bert_dataset(data.Dataset):
     def mask_token(self, idx, tokens, types, vocab_words, rng):
         """
         helper function to mask `idx` token from `tokens` according to
-        section 3.3.1 of https://arxiv.org/pdf/1810.04805.pdf
         """
         label = tokens[idx]
         if rng.random() < 0.8:
@@ -718,6 +714,7 @@ class bert_dataset(data.Dataset):
         return label
 
     def get_caps(self, s, t):
+        # Returns a list of labels with 1 for each capitablized token in the sentence, 0 else
         si = 0
         ti = 0
         tii = 0
@@ -932,7 +929,7 @@ class bert_dataset(data.Dataset):
             if valid_seq_len >= ngram and rng.random() < self.trigram_shuffle_rate:
                 valid_seq_len = 0
                 # Shuffle
-                label = rng.randint(0,5)
+                label = rng.randint(0,1)
                 perm = classes[label]
                 tokens[i][idx - (ngram - 1) : idx + 1] = [tokens[i][idx - p] for p in perm]
                 token_types[i][idx - (ngram - 1) : idx + 1] = [token_types[i][idx - p] for p in perm]

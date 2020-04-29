@@ -109,18 +109,10 @@ def setup_model_and_optimizer(args, tokenizer):
 
 
 def get_batch(data):
-    ''' get_batch subdivides the source data into chunks of
-    length args.seq_length. If source is equal to the example
-    output of the data loading example, with a seq_length limit
-    of 2, we'd get the following two Variables for i = 0:
-    ┌ a g m s ┐ ┌ b h n t ┐
-    └ b h n t ┘ └ c i o u ┘
-    Note that despite the name of the function, the subdivison of data is not
-    done along the batch dimension (i.e. dimension 1), since that was handled
-    by the data loader. The chunks are along dimension 0, corresponding
-    to the seq_len dimension in the LSTM. A Variable representing an appropriate
-    shard reset mask of the same dimensions is also returned.
-    '''
+    """ Get a batch of data from the data loader, which automatically batches the individual examples
+        Concatenates necessary data (lm_labels, loss_mask, tgs_mask), which is required for FS/QT variant tasks
+        Puts data into tensors, and places them onto CUDA
+    """
     # TODO Add trigram mask
     aux_labels = {}
     for mode, label in data['aux_labels'].items():
@@ -160,8 +152,8 @@ def forward_step(data, model, criterion, modes, args):
     criterion_cls, criterion_reg = criterion
     # Get the batch.
     batch = get_batch(data)
-
     tokens, types, tasks, aux_labels, loss_mask, tgs_mask, lm_labels, att_mask, num_tokens = batch
+    # Create self-supervised labels which required batch size
     if "rg" in modes:
         aux_labels['rg'] = torch.autograd.Variable(torch.arange(tokens[0].shape[0]).long()).cuda()
     if "fs" in modes:
@@ -170,6 +162,7 @@ def forward_step(data, model, criterion, modes, args):
     scores = model(modes, tokens, types, tasks, att_mask, checkpoint_activations=args.checkpoint_activations)
     assert sorted(list(scores.keys())) == sorted(modes)
 
+    # Calculate losses based on required criterion
     losses = {}
     for mode, score in scores.items():
         if mode in ["mlm", "sbo"]:
@@ -185,11 +178,8 @@ def forward_step(data, model, criterion, modes, args):
         elif mode in ["fs", "wlen", "tf", "tf_idf"]: # use regression
             losses[mode] = criterion_reg(score.view(-1).contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous().float()).mean()
-            #if mode in ["fs", "tf_idf"]:
-            #    losses[mode] = torch.sqrt(losses[mode] + 1e-8)
         else:
             score = score.view(-1, 2) if mode in ["tc", "cap"] else score
-            #score = score.view(-1, 4) if mode in ["tc", "cap"] else score
             losses[mode] = criterion_cls(score.contiguous().float(),
                                          aux_labels[mode].view(-1).contiguous()).mean()
     return losses, num_tokens
@@ -199,12 +189,12 @@ def backward_step(optimizer, model, losses, num_tokens, args):
     """Backward step."""
     # Backward pass.
     optimizer.zero_grad()
+    # For testing purposes, should always be False
     if args.no_aux:
         total_loss = losses['mlm']
     else:
         total_loss = sum(losses.values())
-    #with amp.scale_loss(total_loss, optimizer) as scaled_loss:
-    #     scaled_loss.backward()
+
     total_loss.backward()
 
     # Reduce across processes.
@@ -321,6 +311,7 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
 
     # Data iterator.
     modes = args.modes.split(',')
+    # Incrementally add tasks after each epoch
     if args.incremental:
         modes = modes[:epoch]
 
@@ -334,24 +325,23 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
     while tot_tokens < max_tokens:
         # ERNIE 2.0's continual multi task learning
         if args.continual_learning:
-            # test 1
+            # Continual learn through all tasks
             modes_ = get_mode_from_stage(current_stage, args)
             if args.always_mlm:
-                # test 2
+                # Continual learn through auxiliary tasks, always learning MLM
                 modes_ = ['mlm'] + modes_
         # Alternating between tasks
         elif args.alternating:
             if args.always_mlm:
-                # test 3
+                # Alternate between all tasks
                 modes_ = ['mlm']
                 if len(modes[1:]) > 0:
-                    # test 4
+                    # Alternate between auxiliary tasks, always learning MLM
                     modes_ += [modes[(iteration % (len(modes) - 1)) + 1]]
             else:
                 modes_ = [modes[iteration % len(modes)]]
         # Summing all tasks
         else:
-            # test 5 when incremental is False, test 6 when incremental is True
             sent_task = [] if len(sent_tasks) == 0 else [sent_tasks[iteration % len(sent_tasks)]]
             modes_ = ['mlm'] + sent_task + tok_tasks
 
@@ -365,8 +355,6 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
                               modes_,
                               args)
                 break
-            #except (TypeError, RuntimeError) as e:
-            #    print("Ooops, caught: '{}', continuing...".format(e))
             except StopIteration:
                 data_iters = iter(train_data)
 
@@ -420,20 +408,11 @@ def train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, ti
             tot_iteration += iteration
             iteration = 0
 
-        # Checkpointing
-        # Currently unsupported, fix saving mid epoch tokens to fix
-        # if args.save and args.save_iters and iteration % args.save_iters == 0:
-        #     total_iters = args.train_iters * (epoch-1) + iteration
-        #     model_suffix = 'model/%d.pt' % (total_iters)
-        #     save_checkpoint(model_suffix, epoch, iteration, model, optimizer,
-        #                     lr_scheduler, args)
-
     print("Learnt using {} tokens over {} iterations this epoch".format(tot_tokens, tot_iteration + iteration))
 
 def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=False):
     """Evaluation."""
     print("Entering evaluation", flush=True)
-    import time
     # Turn on evaluation mode which disables dropout.
     model.eval()
 
@@ -459,14 +438,11 @@ def evaluate(epoch, data_source, model, criterion, elapsed_time, args, test=Fals
 
             # Reduce across processes.
             if isinstance(model, DDP):
-                # reduced_losses = torch.cat((lm_loss.view(1), nsp_loss.view(1)))
                 losses_reduced = [[k, v] for k, v in losses.items()]
                 reduced_losses = torch.cat([x[1].view(1) for x in losses_reduced])
                 torch.distributed.all_reduce(reduced_losses.data)
                 reduced_losses.data = reduced_losses.data / args.world_size
                 torch.distributed.all_reduce(num_tokens)
-                #model.allreduce_params(reduce_after=False,
-                #                       fp32_allreduce=False)  # args.fp32_allreduce)
                 losses = {losses_reduced[i][0]: reduced_losses[i] for i in range(len(losses_reduced))}
             
             assert sorted(list(losses.keys())) == sorted(modes)
@@ -578,12 +554,27 @@ def main():
         if args.continual_learning:
             next_stage = set_up_stages(args)
             current_stage = next_stage()
+            if args.resume_dataloader:
+                num_tokens = args.epoch * args.train_tokens
+                # Get to the right stage
+                while num_tokens > sum(current_stage.values()):
+                    num_tokens -= sum(current_stage.values())
+                    ns = next_stage()
+                    for m in ns:
+                        current_stage[m] = ns[m]
+                # Get to right part of stage
+                stage_tokens = sum(current_stage.values())
+                stage_ratios = {k: v / float(stage_tokens) for k, v in current_stage.items()}
+                for k in current_stage:
+                    current_stage[k] -= num_tokens * stage_ratios[k]
 
-        # For all epochs.
+        # Train for required epochs
         for epoch in range(start_epoch, args.epochs+1):
             if args.shuffle:
                 train_data.batch_sampler.sampler.set_epoch(epoch+args.seed)
             timers('epoch time').start()
+
+            # Train
             train_epoch(epoch, model, optimizer, train_data, lr_scheduler, criterion, timers, experiment, metrics, args,
                         current_stage=current_stage, next_stage=next_stage)
             elapsed_time = timers('epoch time').elapsed()
@@ -593,7 +584,8 @@ def main():
                 print('saving ck model to:',
                        os.path.join(args.save, ck_path))
                 save_checkpoint(ck_path, epoch+1, model, optimizer, lr_scheduler, args)
-            
+
+            # Validate
             val_loss = evaluate(epoch, val_data, model, criterion, elapsed_time, args)
 
             if val_loss < best_val_loss:
@@ -609,11 +601,6 @@ def main():
         print('-' * 100)
         print('Exiting from training early')
         exit()
-
-    if args.save and False: # WARNING I disabled this to save memory, but may be necessary in the future
-        final_path = 'final/model.pt'
-        print('saving final model to:', os.path.join(args.save, final_path))
-        save_checkpoint(final_path, args.epochs, model, optimizer, lr_scheduler, args)
 
     if test_data is not None:
         # Run on test data.
