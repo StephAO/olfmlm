@@ -24,7 +24,6 @@ from .tasks.tasks import (
 from .tasks.qa import MultiRCTask, ReCoRDTask
 from .tasks.edge_probing import EdgeProbingTask
 
-
 LOG_INTERVAL = 30
 
 
@@ -45,7 +44,7 @@ def parse_write_preds_arg(write_preds_arg: str) -> List[str]:
 
 
 def evaluate(
-    model, tasks: Sequence[tasks_module.Task], batch_size: int, cuda_device: int, split="val"
+        model, tasks: Sequence[tasks_module.Task], batch_size: int, cuda_device: int, split="val"
 ) -> Tuple[Dict, pd.DataFrame]:
     """Evaluate on a dataset
     {par,qst,ans}_idx are used for MultiRC and other question answering dataset"""
@@ -145,7 +144,7 @@ def evaluate(
 
 
 def write_preds(
-    tasks: Iterable[tasks_module.Task], all_preds, pred_dir, split_name, strict_glue_format=False
+        tasks: Iterable[tasks_module.Task], all_preds, pred_dir, split_name, strict_glue_format=False
 ) -> None:
     for task in tasks:
         if task.name not in all_preds:
@@ -255,11 +254,11 @@ def _get_pred_filename(task_name, pred_dir, split_name, strict_glue_format):
 
 
 def _write_edge_preds(
-    task: EdgeProbingTask,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    join_with_input: bool = True,
+        task: EdgeProbingTask,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        join_with_input: bool = True,
 ):
     """ Write predictions for edge probing task.
 
@@ -293,11 +292,11 @@ def _write_edge_preds(
 
 
 def _write_wic_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for WiC task.  """
     pred_map = {0: "false", 1: "true"}
@@ -312,11 +311,11 @@ def _write_wic_preds(
 
 
 def _write_winograd_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for Winograd Coreference task.  """
     pred_map = {0: "False", 1: "True"}
@@ -331,11 +330,11 @@ def _write_winograd_preds(
 
 
 def _write_boolq_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for Boolean Questions task.  """
     pred_map = {0: "false", 1: "true"}
@@ -350,11 +349,11 @@ def _write_boolq_preds(
 
 
 def _write_commitment_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for CommitmentBank task.  """
     pred_map = {0: "neutral", 1: "entailment", 2: "contradiction"}
@@ -369,7 +368,7 @@ def _write_commitment_preds(
 
 
 def _write_copa_preds(
-    task, preds_df: pd.DataFrame, pred_dir: str, split_name: str, strict_glue_format: bool = False
+        task, preds_df: pd.DataFrame, pred_dir: str, split_name: str, strict_glue_format: bool = False
 ):
     """ Write COPA predictions to JSONL """
     preds_file = _get_pred_filename(task.name, pred_dir, split_name, strict_glue_format)
@@ -383,11 +382,11 @@ def _write_copa_preds(
 
 
 def _write_multirc_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for MultiRC task. """
     preds_file = _get_pred_filename(task.name, pred_dir, split_name, strict_glue_format)
@@ -411,11 +410,11 @@ def _write_multirc_preds(
 
 
 def _write_record_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for ReCoRD task. """
     preds_file = _get_pred_filename(task.name, pred_dir, split_name, strict_glue_format)
@@ -431,7 +430,6 @@ def _write_record_preds(
                 par_qst_ans_d[row["psg_idx"]][row["qst_idx"]].append(ans_d)
             for par_idx, qst_ans_d in par_qst_ans_d.items():
                 for qst_idx, ans_ds in qst_ans_d.items():
-
                     # get prediction
                     logits_and_anss = [(d["logit"], d["str"]) for d in ans_ds]
                     logits_and_anss.sort(key=lambda x: x[1])
@@ -449,11 +447,11 @@ def _write_record_preds(
 
 
 def _write_rte_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for RTE task in SuperGLUE prediction format.  """
     trg_map = {0: "not_entailment", 1: "entailment"}
@@ -468,11 +466,11 @@ def _write_rte_preds(
 
 
 def _write_diagnostics_preds(
-    task: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions for GLUE/SuperGLUE diagnostics task.  """
 
@@ -494,11 +492,11 @@ def _write_diagnostics_preds(
 
 
 def _write_glue_preds(
-    task_name: str,
-    preds_df: pd.DataFrame,
-    pred_dir: str,
-    split_name: str,
-    strict_glue_format: bool = False,
+        task_name: str,
+        preds_df: pd.DataFrame,
+        pred_dir: str,
+        split_name: str,
+        strict_glue_format: bool = False,
 ):
     """ Write predictions to separate files located in pred_dir.
     We write special code to handle various GLUE tasks.

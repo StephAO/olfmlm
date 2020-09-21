@@ -155,7 +155,7 @@ def add_training_args(parser):
                        const=True, default=False,
                        help='If true, train new and old losses separately.')
     group.add_argument('--always-mlm', type=str2bool, nargs='?',
-                       const=True, default=False,
+                       const=True, default=True,
                        help='If true, train new and old losses separately.')
     group.add_argument('--no-aux', action='store_true',
                        help='If true, zero out all aux loss.')

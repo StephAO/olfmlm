@@ -1,21 +1,15 @@
-Combines  
+Code for "On Losses for Modern Language Models" (#TODO link paper)
+
+This repository is primarily for reproducibility and posterity. It is not maintained.
+
+Thank you to NVIDIA and NYU's jiant group for their code which helped create the base of this repo. Specifically
 https://github.com/NVIDIA/Megatron-LM/commits/master (commit 0399d32c75b4719c89b91c18a173d05936112036)  
 and  
 https://github.com/nyu-mll/jiant/commits/master (commit 14d9e3d294b6cb4a29b70325b2b993d5926fe668)  
-to get a BERT repo from pretraining to evaluation.  
-
-To run pretraining on slurm (from outside this directory):  
-`srun --gres=gpu:1 -c 8 --mem=12G -p gpu bash Megatron-LM/scripts/pretrain_bert.sh > output.txt &`  
-
-To run evaluation on slurm (from outside this directory):  
-`srun --gres=gpu:1 -c 8 --mem=12G -p gpu python3 -m Megatron-LM.evaluate.main --config_file test_bert.conf &`
+were used.
 
 # Setup
-We officially support only python3.6.
-
-To use this repo please install the latest supported versions of PyTorch with GPU support. 
-
-Additionally, part of this codebase leverages tensorflow-cpu to perform dataloading of TFRecords. We recommend creating a virtual environment (to avoid breaking existing tf installations) and install our `reuirements.txt`.
+Only tested on python3.6.
 
 ```
 python -m pip install virtualenv
@@ -26,72 +20,42 @@ pip install -r requirements.txt
 
 
 # Usage
-We've provided 4 scripts that pretrain BERT. All saved checkpoints can be used for finetuning according to [existing implementations](https://github.com/huggingface). Save model checkpoints with `--save`.
+The code enables pre-training a transformer (size specified in bert_config.json) using any combination of the following tasks (aka modes/losses):
+"mlm", "nsp", "psp", "sd", "so", "rg", "fs", "tc", "sc", "sbo", "wlen", "cap", "tf", "tf_idf", or "tgs". See paper for details regarding the modes.
+NOTE: PSP (previous sentence prediction) is equivalent to ASP (adjacent sentence prediction) from the paper. RG (referential game) is equivalent to QT (quick thoughts variant) from the paper.
 
-## BERT Pretraining
-`bash scripts/pretrain_bert.sh`
+They can be combined using any of the following methods:
+- Summing all losses (default, incompatible between a small subset of tasks, see paper for more detail)
+- Continuous Multi-Task Learning, based on ERNIE 2.0 (--continual-learning True)
+- Alternating between losses (--alternating True)
 
-This script runs single gpu BERT pretraining and is mainly for debugging purposes.
+With the following modifiers:
+- Always using MLM loss (--always-mlm True, which is the default and highly recommended, see paper for more details)
+- Incrementally add tasks each epoch (--incremental)
+- Use data formatting for tasks, but zero out losses from auxiliary tasks (--no-aux True, not recommended, used for testing)
 
-To use this script place your `--train-data` in loose json format with one json per line. The text field of your json dictionaries should correspond to `--text-key`. 
+Set paths to read/save/load from in paths.py
 
-```
-python pretrain_bert.py \
-    --batch-size 4 \
-    --tokenizer-type BertWordPieceTokenizer \
-    --cache-dir temp_cache_dir \
-    --tokenizer-model-type bert-large-uncased \
-    --vocab-size 30522 \
-    --train-data wikipedia \
-    --presplit-sentences \
-    --loose-json \
-    --text-key text \
-    --split 1000,1,1 \
-    --lazy-loader \
-    --max-preds-per-seq 80 \
-    --seq-length 512 \
-    --max-position-embeddings 512 \
-    --num-layers 24 \
-    --hidden-size 1024 \
-    --intermediate-size 4096 \
-    --num-attention-heads 16 \
-    --hidden-dropout 0.1 \
-    --attention-dropout 0.1 \
-    --train-iters 1000000 \
-    --lr 0.0001 \
-    --lr-decay-style linear \
-    --lr-decay-iters 990000 \
-    --warmup .01 \
-    --weight-decay 1e-2 \
-    --clip-grad 1.0 \
-    --fp16 \
-    --fp32-layernorm \
-    --fp32-embedding \
-    --hysteresis 2 \
-    --num-workers 2 
-```
+To create datasets, see data_utils/make_dataset.py
 
-## Distributed BERT Pretraining
-`bash scripts/pretrain_bert_distributed.sh`
+For tf_idf prediction, you need to first calculate the idf score for your dataset. See idf.py for a script to do this.
 
-To use this script, follow the same data preparation procedure as in [earlier sections](#bert-pretraining). This script uses the pytorch distributed launcher to launch distributed training. As such, multinode training can be achieved by properly setting environment variables for the `env://` init method. See the official pytorch [documentation](https://pytorch.org/docs/stable/distributed.html#launch-utility) for further description of these [environment variables](https://pytorch.org/docs/stable/distributed.html#environment-variable-initialization). By default multinode training uses the nccl distributed backend.
+## Pre-training
+To run pretraining :
+`bash sentence_encoders/scripts/pretrain_bert.sh --model-type [model type]`
+Where model type is the name of the model you want to train. If model type is one of the modes, it will train using mlm and that mode (if model type is mlm, it will train using just mlm).
+The --modes argument will override this default behaviour. If model type is not a specified mode, the--modes argument is required.
 
-## Distributed BERT Pretraining with TFRecords
-`bash scripts/pretrain_bert_tfrecords_distributed.sh`
+## Distributed Pretraining
+Use pretrain_bert_distributed.sh instead.
+`bash sentence_encoders/scripts/pretrain_bert_distributed.sh --model-type [model type]`
 
-This script takes advantage of TensorFlow BERT's [`create_pretraining.py`](https://github.com/NVIDIA/DeepLearningExamples/blob/master/TensorFlow/LanguageModeling/BERT/create_pretraining_data.py) script to pre-cache the dataset in the TFRecord format. To convert the data to pytorch tensors we use a `TFRecordDataset` and tensorflow eager mode to turn the TFRecords into numpy matrices before loading them into pytorch gpu tensors. This greatly reduces the overhead of dataprocessing and speeds up training. Pass a whitespace-separated list of TFRecord paths to `--train-data` and enable the `--use-tfrecords` flag. Multinode training can be achieved as described in the [previous section](#distributed-bert-pretraining).
-
-## Train Custom Sentence Piece Tokenizer and Pretrain BERT
-`bash scripts/pretrain_bert_sentencepiece.sh`
-
-This script runs BERT pretraining with a `sentencepiece` tokenizer. If no sentencepiece tokenizer exists at `--tokenizer-path` one will be trained automatically. The sentencepiece tokenizer can be used with the previous scripts (NOTE: sentencepiece training can only happen during single gpu pretraining). `<--tokenizer-path>.vocab` can be used with [`create_pretraining_data.py`](https://github.com/NVIDIA/DeepLearningExamples/blob/master/TensorFlow/LanguageModeling/BERT/create_pretraining_data.py) to make a TFRecord dataset with the given tokenization.
+## Evaluation
+To run evaluation:
+You will need to convert the saved state dict of the required model using the convert_state_dict.py file.
+Then run:
+`python3 -m sentence_encoders.evaluate.main --exp_name [experiment name]`
+Where experiment name is the same as the model type above. If using a saved checkpoint instead of the best model, use the --checkpoint argument.
 
 
-# Collecting Wikipedia Training Data
-We recommend following the wikipedia data extraction process specified by google research: "the recommended pre-processing is to download [the latest dump](https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2), extract the text with [WikiExtractor.py](https://github.com/attardi/wikiextractor), and then apply any necessary cleanup to convert it into plain text." 
 
-We recommend using the `--json` argument when using WikiExtractor, which will dump the wikipedia data into loose json format (one json per line), making it more manageable and readily consumable by our codebase. We recommend further preprocessing this json dataset by preprocessing the dataset with nltk punctuation standardization, and presplitting each document into newline separated sentences. This can be done with the provided script `./scripts/presplit_sentences_json.py` and will allow for faster data processing during training time. Pretraining with presplit data should be run with the `--presplit-sentences` flag as shown above.
-
-Once the json dataset is ready make sure to set the path in line 27 of `data_utils/corpora.py`.
-
-If your system is memory limited we also recommend running pretraining with the `--lazy-loader` argument as we've done. After preprocessing the dataset once, this will allow the dataset to be lazily loaded from disk, as opposed to storing it in memory.

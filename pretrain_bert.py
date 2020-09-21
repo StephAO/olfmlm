@@ -171,7 +171,7 @@ def forward_step(data, model, criterion, modes, args):
             loss_mask = loss_mask.view(-1).contiguous()
             losses[mode] = torch.sum(mlm_loss * loss_mask.view(-1).float()) / loss_mask.sum()
         elif mode == "tgs":
-            tgs_loss = criterion_cls(score.view(-1, 2).contiguous().float(),
+            tgs_loss = criterion_cls(score.view(-1, 6).contiguous().float(),
                                      aux_labels[mode].view(-1).contiguous())
             tgs_loss = tgs_loss.view(-1).contiguous()
             losses[mode] = torch.sum(tgs_loss * tgs_mask.view(-1).float() / tgs_mask.sum())
@@ -268,7 +268,7 @@ def set_up_stages(args):
         nonlocal stage_idx
         if stage_idx >= len(stage_splits):
             print("Finished all training, shouldn't reach this unless it's the very final iteration")
-            return {k: total_tokens for k in modes}
+            return {k: float(total_tokens) for k in modes}
         assert len(modes) == len(stage_splits[stage_idx])
         current_stage = {k: v for k, v in zip(modes, stage_splits[stage_idx])}
         print("Starting stage {} of {}, with task distribution: ".format(stage_idx, len(stage_splits)))

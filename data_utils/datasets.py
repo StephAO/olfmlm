@@ -910,11 +910,11 @@ class bert_dataset(data.Dataset):
         if self.trigram_shuffle_rate == 0:
             return []
 
-        ngram = 2
+        ngram = 3
         # 6 permutations (ngram = 3)
-        #classes = {0: [2, 1, 0], 1: [0, 2, 1], 2: [1, 0, 2], 3: [1, 2, 0], 4: [2, 0, 1], 5: [0, 1, 2]}
+        classes = {0: [2, 1, 0], 1: [0, 2, 1], 2: [1, 0, 2], 3: [1, 2, 0], 4: [2, 0, 1], 5: [0, 1, 2]}
         # 2 permutations (ngram = 2)
-        classes = {0: [1, 0], 1: [0, 1]}
+        #classes = {0: [1, 0], 1: [0, 1]}
         labels = []
         mask = []
         idx = 0
@@ -929,7 +929,7 @@ class bert_dataset(data.Dataset):
             if valid_seq_len >= ngram and rng.random() < self.trigram_shuffle_rate:
                 valid_seq_len = 0
                 # Shuffle
-                label = rng.randint(0,1)
+                label = rng.randint(0,5)
                 perm = classes[label]
                 tokens[i][idx - (ngram - 1) : idx + 1] = [tokens[i][idx - p] for p in perm]
                 token_types[i][idx - (ngram - 1) : idx + 1] = [token_types[i][idx - p] for p in perm]

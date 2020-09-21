@@ -1,3 +1,7 @@
+"""
+Script to calculate the inverse document frequency (idf) used in tf-idf labels of a dataset.
+"""
+
 from sentence_encoders import data_utils
 import numpy as np
 from math import ceil, log
@@ -27,7 +31,7 @@ data_set_args = {
 }
 
 
-def sentence_tokenize(tokenizer, sent, sentence_num=0, beginning=False, ending=False):
+def sentence_tokenize(tokenizer, sent):
     """tokenize sentence and get token types if tokens=True"""
     tokens = tokenizer.EncodeAsIds(sent).tokenization
     return tokens

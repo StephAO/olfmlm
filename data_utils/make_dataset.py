@@ -1,3 +1,17 @@
+"""
+Used to create dataset to train on. Processes data into the following format:
+-Large byte file containing cleaned string data where each sentence is on a newline and each document is split by an
+additional newline character.
+-Pickle of list that contains the boundaries of each document to enable lazy and fast read of a random access document.
+
+This script will create the above dataset from existing datasets (useful if existing dataset is not cleaned/filtered or
+if you want to split documents into smaller, more consistently sized chunks) or from text files (either one large
+text file, or a directory containing many text files).
+
+Once created, you need to add the dataset to data_utils/corpora.py. You can then use it through the train-data argument.
+"""
+
+
 from sentence_encoders import data_utils
 from multiprocessing import Pool
 from blingfire import text_to_sentences
@@ -14,10 +28,12 @@ from textwrap import shorten
 
 doc_separator = "\n".encode('utf-8')
 
+
 def sentence_tokenize(tokenizer, sent):
     """tokenize sentence and get token types if tokens=True"""
     tokens = tokenizer.EncodeAsIds(sent).tokenization
     return tokens
+
 
 def get_doc_len(s, tokenizer):
     toks = 0
@@ -31,12 +47,20 @@ def get_doc_len(s, tokenizer):
 
     return doc_len, toks
 
-def process_document(document, max_doc_length, tokenizer=None):
+
+def process_document(document, doc_length, tokenizer=None):
+    """
+    Filter, clean, and split document into doc_length sizes
+    :param document: Document to process
+    :param doc_length: Desired size of document chunks
+    :param tokenizer: Tokenizer to use if available (Bases doc length on token size instead of word size)
+    :return: Bytes chunks to write to file, respective lengths of those chunks, and document statistics.
+    """
     str_lens = []
     writes = []
 
     required_sents = 4
-    
+
     if type(document) == str:
         document = document.split("\n")
 
@@ -50,7 +74,7 @@ def process_document(document, max_doc_length, tokenizer=None):
     if float(len(string_document)) < 0.9 * len(' '.join(document)):
         return [], [], 0, 0, 0, 0
     # Filter documents containing less than 10 words
-    if len(string_document.split(' ')) < 10: 
+    if len(string_document.split(' ')) < 10:
         return [], [], 0, 0, 0, 0
     # Filter documents containing less than 100 characters
     if len(string_document) < 100:
@@ -81,8 +105,8 @@ def process_document(document, max_doc_length, tokenizer=None):
         # Translate some weird utf-8 characters to their more regular counterparts
         s = s.translate(DatasetWriter.transl_table)
         # Remove the rest of the weird utf-8 characters
-        #s = ''.join([chr(c) for c in s.encode('utf-8') if c < 128]) # [9,10,13] + list(range(32,127))])
-        #s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', s)
+        # s = ''.join([chr(c) for c in s.encode('utf-8') if c < 128]) # [9,10,13] + list(range(32,127))])
+        # s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', s)
         s = unidecode.unidecode(s)
         encoded = unicodedata.normalize('NFKD', s).encode('utf-8')  # clean(s)
         doc_bytes += encoded
@@ -94,7 +118,7 @@ def process_document(document, max_doc_length, tokenizer=None):
         num_toks += nt
 
         # Split if we've reached the max doc length and enough sentences left
-        if doc_len >= max_doc_length and num_sents >= required_sents and len(document) - i >= required_sents:
+        if doc_len >= doc_length and num_sents >= required_sents and len(document) - i >= required_sents:
             # Update stats
             doc_str = doc_bytes.decode('utf-8')
             num_words = len(doc_str.split(' '))
@@ -124,24 +148,27 @@ def process_document(document, max_doc_length, tokenizer=None):
         # Append write data
         writes += [doc_bytes + doc_separator]
         str_lens.append(str_cnt + 1)  # + 1 for doc separator
-    
-    print("-"*100)
+
+    print("-" * 100)
     for w in writes:
         print(w.decode('utf-8'))
 
     return writes, str_lens, tok_total, word_total, sentence_total, document_total
 
+
 class DatasetWriter:
+    """ Class that reads in text file or existing datasets and processes them into desired format"""
 
     transl_table = dict([(ord(x), ord(y)) for x, y in zip(u"‘’´“”––-æ", u"'''\"\"---e")])
 
-    def __init__(self, name, read_path, path_ext=None, max_doc_length=1024, preamble_len=100, from_text_files=False, split_on_newlines=False):
+    def __init__(self, name, read_path, path_ext=None, max_doc_length=1024, preamble_len=100, from_text_files=False,
+                 split_on_newlines=False):
         """
         :param name [string]: Name of the dataset
         :param read_path Union[string, List[string]]: If using text files, the base read path to the files, else a list of datasets
         :param path_ext List[string]: List of extensions to the read path if there are multiple subdirectories to get files from
         :param from_text_files [Bool]: Whether to use text files to read data or existing datasets
-        :param split_on_newlines [Bool]: If True, paragraphs are independent documents, if False, tiles are independent documents
+        :param split_on_newlines [Bool]: If True, paragraphs are independent documents, if False, files are independent documents
         """
         self.read_path = read_path
         self.path_ext = path_ext
@@ -151,7 +178,7 @@ class DatasetWriter:
         self.from_text_files = from_text_files
         self.doc_separator = "\n".encode('utf-8')
         self.name = name
-        self.base_path = "/h/stephaneao/"
+        self.base_path = ""#TOFILL
         self.lazy_path = os.path.join(self.base_path, self.name + ".lazy/")
         if not os.path.exists(self.lazy_path):
             os.makedirs(self.lazy_path)
@@ -173,21 +200,21 @@ class DatasetWriter:
         self.str_lens = []
         self.init_dataset_stats()
         doc_iter = self.dataset_iterator(self.read_path) if not self.from_text_files else \
-                   self.text_file_iterator(self.read_path, self.path_ext)
+            self.text_file_iterator(self.read_path, self.path_ext)
         for doc_info in doc_iter:
             if len(doc_info) == 1:
-               doc_info = doc_info[0]
-            writes, str_lens, toks, words, sents, documents = doc_info 
+                doc_info = doc_info[0]
+            writes, str_lens, toks, words, sents, documents = doc_info
             if documents != len(str_lens):
                 print("WTF?")
                 print(writes)
                 print(str_lens)
                 print(documents)
-                exit(0)    
+                exit(0)
             self.write_document(writes, str_lens)
             self.update_stats(toks, words, sents, documents)
-        
-        print("Number of lens:", len(self.str_lens))        
+
+        print("Number of lens:", len(self.str_lens))
         pkl.dump(self.str_lens, open(self.len_path, 'wb'))
         self.print_stats()
 
@@ -198,24 +225,27 @@ class DatasetWriter:
         self.document_total = 0
         # self.short_q = queue.PriorityQueue(maxsize=5)
         # self.shortest_len = self.max_doc_length
-        
+
     def print_stats(self):
         stat_str = ""
         stat_str += "Total number of tokens: {}\n".format(self.tok_total)
         stat_str += "Total number of words: {}\n".format(self.word_total)
         stat_str += "Total number of sentences: {}\n".format(self.sentence_total)
         stat_str += "Total number of documents: {}\n".format(self.document_total)
-        stat_str += "Average number of tokens per document: {:.2f}\n".format(float(self.tok_total) / self.document_total)
-        stat_str += "Average number of words per document: {:.2f}\n".format(float(self.word_total) / self.document_total)
-        stat_str += "Average number of sentences per document: {:.2f}\n".format(float(self.sentence_total) / self.document_total)
+        stat_str += "Average number of tokens per document: {:.2f}\n".format(
+            float(self.tok_total) / self.document_total)
+        stat_str += "Average number of words per document: {:.2f}\n".format(
+            float(self.word_total) / self.document_total)
+        stat_str += "Average number of sentences per document: {:.2f}\n".format(
+            float(self.sentence_total) / self.document_total)
 
         print(stat_str)
 
     def write_document(self, writes, str_lens):
         assert len(writes) == len(str_lens)
-        #if type(writes[0]) == tuple:
+        # if type(writes[0]) == tuple:
         #    writes = [w[0] for w in writes]
-        #if type(str_lens[0]) == torch.Tensor:
+        # if type(str_lens[0]) == torch.Tensor:
         #    str_lens = [s.item() for s in str_lens]
         for i in range(len(writes)):
             self.write_file.write(writes[i])
@@ -232,7 +262,7 @@ class DatasetWriter:
 
     def dataset_iterator(self, paths):
         data_set_args = {
-            'path': paths, # ['wikipedia', 'cnn_dailymail', 'gutenberg'],
+            'path': paths,  # ['wikipedia', 'cnn_dailymail', 'gutenberg'],
             'seq_length': 512,
             'lazy': True,
             'delim': ',',
@@ -255,8 +285,8 @@ class DatasetWriter:
         print("Starting length:", len(ds))
 
         fd = FilterDataset(ds, tokenizer, self.max_doc_length)
-        #sampler = torch.utils.data.SequentialSampler(fd)
-        #batch_sampler = torch.utils.data.BatchSampler(sampler, 1, False)
+        # sampler = torch.utils.data.SequentialSampler(fd)
+        # batch_sampler = torch.utils.data.BatchSampler(sampler, 1, False)
 
         data_loader = torch.utils.data.dataloader.DataLoader(fd,
                                                              collate_fn=lambda x: x,
@@ -304,7 +334,7 @@ class DatasetWriter:
                     yield process_document(doc, self.max_doc_length)
 
     def convert_into_sentences(self, text_file):
-        paragraphs= []
+        paragraphs = []
         stack = []
         for chunk in text_file:
             if not chunk.strip():
@@ -320,6 +350,7 @@ class DatasetWriter:
             sents = text_to_sentences(
                 " ".join(stack).strip().replace('\n', ' ')).split('\n')
             paragraphs.append(sents)
+
         return paragraphs
 
 
@@ -334,6 +365,7 @@ class FilterDataset(data.Dataset):
         dataset_size (int): number of random sentencepairs in the dataset. Default: len(ds)*(len(ds)-1)
 
     """
+
     def __init__(self, ds, tokenizer, max_len):
         self.ds = ds
         self.tokenizer = tokenizer
@@ -356,9 +388,10 @@ class FilterDataset(data.Dataset):
 
 
 if __name__ == "__main__":
-    #base_read_path = "/scratch/gobi1/datasets/NLP-Corpus/CNN_dailymail/"
-    #read_path_extension = ["cnn/stories/", "dailymail/stories/"]
-    base_read_path = ['wikipedia', 'bookcorpus'] #"/h/stephaneao/bookcorpus_clean"  
-    read_path_extension = None #["books_large_p1_clean.txt", "books_large_p2_clean.txt"]
-    with DatasetWriter("bert_corpus_2", base_read_path, read_path_extension, from_text_files=False, split_on_newlines=True) as dw:
+    # base_read_path = "/scratch/gobi1/datasets/NLP-Corpus/CNN_dailymail/"
+    # read_path_extension = ["cnn/stories/", "dailymail/stories/"]
+    base_read_path = ['wikipedia', 'bookcorpus']  # "/h//bookcorpus_clean"
+    read_path_extension = None  # ["books_large_p1_clean.txt", "books_large_p2_clean.txt"]
+    with DatasetWriter("bert_corpus_2", base_read_path, read_path_extension, from_text_files=False,
+                       split_on_newlines=True) as dw:
         dw.create()

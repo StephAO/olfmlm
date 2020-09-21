@@ -1,3 +1,8 @@
+"""
+Script use to change the key names of state dicts so that it can be properly loaded in the evaluation code.
+Kind of a hack, but it works...
+"""
+
 import sys
 import torch
 
