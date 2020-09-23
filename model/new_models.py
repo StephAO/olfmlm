@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
-from sentence_encoders.model.modeling import *
+from olfmlm.model.modeling import *
 
 class BertSentHead(nn.Module):
     def __init__(self, config, num_classes=2):

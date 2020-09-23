@@ -9,7 +9,7 @@ NODE_RANK=0
 
 DISTRIBUTED_ARGS="--nproc_per_node $WORLD_SIZE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
-python -m torch.distributed.launch $DISTRIBUTED_ARGS sentence_encoders/pretrain_bert.py "$@"
+python -m torch.distributed.launch $DISTRIBUTED_ARGS olfmlm/pretrain_bert.py "$@"
 
 
 

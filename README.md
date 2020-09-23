@@ -42,19 +42,19 @@ For tf_idf prediction, you need to first calculate the idf score for your datase
 
 ## Pre-training
 To run pretraining :
-`bash sentence_encoders/scripts/pretrain_bert.sh --model-type [model type]`
+`bash olfmlm/scripts/pretrain_bert.sh --model-type [model type]`
 Where model type is the name of the model you want to train. If model type is one of the modes, it will train using mlm and that mode (if model type is mlm, it will train using just mlm).
 The --modes argument will override this default behaviour. If model type is not a specified mode, the--modes argument is required.
 
 ## Distributed Pretraining
 Use pretrain_bert_distributed.sh instead.
-`bash sentence_encoders/scripts/pretrain_bert_distributed.sh --model-type [model type]`
+`bash olfmlm/scripts/pretrain_bert_distributed.sh --model-type [model type]`
 
 ## Evaluation
 To run evaluation:
 You will need to convert the saved state dict of the required model using the convert_state_dict.py file.
 Then run:
-`python3 -m sentence_encoders.evaluate.main --exp_name [experiment name]`
+`python3 -m olfmlm.evaluate.main --exp_name [experiment name]`
 Where experiment name is the same as the model type above. If using a saved checkpoint instead of the best model, use the --checkpoint argument.
 
 

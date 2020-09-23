@@ -16,12 +16,12 @@
 import os
 import math
 
-from sentence_encoders.data_utils.samplers import DistributedBatchSampler
-from sentence_encoders.data_utils.datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, \
+from olfmlm.data_utils.samplers import DistributedBatchSampler
+from olfmlm.data_utils.datasets import json_dataset, csv_dataset, split_ds, ConcatDataset, SplitDataset, \
                                                   bert_dataset
-from sentence_encoders.data_utils.lazy_loader import exists_lazy, make_lazy, lazy_array_loader
-from sentence_encoders.data_utils.tokenization import Tokenization, CommandToken, Tokenizer, CharacterLevelTokenizer, BertWordPieceTokenizer, make_tokenizer
-import sentence_encoders.data_utils.corpora
+from olfmlm.data_utils.lazy_loader import exists_lazy, make_lazy, lazy_array_loader
+from olfmlm.data_utils.tokenization import Tokenization, CommandToken, Tokenizer, CharacterLevelTokenizer, BertWordPieceTokenizer, make_tokenizer
+import olfmlm.data_utils.corpora
 
 TRAIN_DATA = 0
 VAL_DATA = 1

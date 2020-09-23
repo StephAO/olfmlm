@@ -17,10 +17,10 @@
 
 import torch
 
-from sentence_encoders.model.modeling import BertConfig
-from sentence_encoders.model.modeling import BertLayerNorm
+from olfmlm.model.modeling import BertConfig
+from olfmlm.model.modeling import BertLayerNorm
 
-from sentence_encoders.model.new_models import Bert
+from olfmlm.model.new_models import Bert
 
 def get_params_for_weight_decay_optimization(module):
 

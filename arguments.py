@@ -19,7 +19,7 @@ import argparse
 import os
 import re
 import torch
-from sentence_encoders.paths import bert_config_file, pretrained_path
+from olfmlm.paths import bert_config_file, pretrained_path
 
 def str2bool(v):
     if isinstance(v, bool):

@@ -12,7 +12,7 @@ Once created, you need to add the dataset to data_utils/corpora.py. You can then
 """
 
 
-from sentence_encoders import data_utils
+from olfmlm import data_utils
 from multiprocessing import Pool
 from blingfire import text_to_sentences
 from torch.utils import data

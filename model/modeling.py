@@ -34,7 +34,7 @@ from torch.nn import CrossEntropyLoss
 
 from torch.utils.checkpoint import checkpoint
 
-from sentence_encoders.data_utils.file_utils import cached_path
+from olfmlm.data_utils.file_utils import cached_path
 
 logger = logging.getLogger(__name__)
 

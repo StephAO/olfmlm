@@ -17,7 +17,7 @@
 
 import copy
 import torch
-from sentence_encoders import data_utils
+from olfmlm import data_utils
 
 class DataConfig:
 

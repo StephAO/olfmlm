@@ -22,7 +22,7 @@ import os
 import unicodedata
 from io import open
 
-from sentence_encoders.data_utils.file_utils import cached_path
+from olfmlm.data_utils.file_utils import cached_path
 
 logger = logging.getLogger(__name__)
 

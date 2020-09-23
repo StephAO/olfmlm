@@ -24,16 +24,16 @@ import numpy as np
 import psutil
 import torch
 
-from sentence_encoders.arguments import get_args
-from sentence_encoders.configure_data import configure_data
-from sentence_encoders.learning_rates import AnnealingLR
-from sentence_encoders.model import BertModel
-from sentence_encoders.model import get_params_for_weight_decay_optimization
-from sentence_encoders.model import DistributedDataParallel as DDP
-from sentence_encoders.optim import Adam
-from sentence_encoders.utils import Timers
-from sentence_encoders.utils import save_checkpoint
-from sentence_encoders.utils import load_checkpoint
+from olfmlm.arguments import get_args
+from olfmlm.configure_data import configure_data
+from olfmlm.learning_rates import AnnealingLR
+from olfmlm.model import BertModel
+from olfmlm.model import get_params_for_weight_decay_optimization
+from olfmlm.model import DistributedDataParallel as DDP
+from olfmlm.optim import Adam
+from olfmlm.utils import Timers
+from olfmlm.utils import save_checkpoint
+from olfmlm.utils import load_checkpoint
 
 
 def get_model(tokenizer, args):

@@ -38,8 +38,8 @@ import nltk
 nltk.download('punkt')
 from nltk import tokenize
 
-from sentence_encoders.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
-from sentence_encoders.data_utils.tokenization import Tokenization
+from olfmlm.data_utils.lazy_loader import lazy_array_loader, exists_lazy, make_lazy
+from olfmlm.data_utils.tokenization import Tokenization
 
 def clean_tokens(text):
     """Runs basic whitespace cleaning and splitting on a piece of text."""
