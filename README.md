@@ -1,4 +1,4 @@
-Code for "On Losses for Modern Language Models" (#TODO link paper)
+Code for "On Losses for Modern Language Models" (ACL: https://www.aclweb.org/anthology/2020.emnlp-main.403/, arxiv: https://arxiv.org/abs/2010.01694)
 
 This repository is primarily for reproducibility and posterity. It is not maintained.
 
