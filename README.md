@@ -1,12 +1,10 @@
-Code for "On Losses for Modern Language Models" (ACL: https://www.aclweb.org/anthology/2020.emnlp-main.403/, arxiv: https://arxiv.org/abs/2010.01694)
+Code for "On Losses for Modern Language Models"  
+[ACL Anthology](https://www.aclweb.org/anthology/2020.emnlp-main.403/), [arxiv](https://arxiv.org/abs/2010.01694)
 
 This repository is primarily for reproducibility and posterity. It is not maintained.
 
-Thank you to NVIDIA and NYU's jiant group for their code which helped create the base of this repo. Specifically
-https://github.com/NVIDIA/Megatron-LM/commits/master (commit 0399d32c75b4719c89b91c18a173d05936112036)  
-and  
-https://github.com/nyu-mll/jiant/commits/master (commit 14d9e3d294b6cb4a29b70325b2b993d5926fe668)  
-were used.
+Thank you to the [NVIDIA/Megatron-LM](https://github.com/NVIDIA/Megatron-LM/tree/0399d32c75b4719c89b91c18a173d05936112036) and NYU's 
+[jiant](https://github.com/nyu-mll/jiant/tree/14d9e3d294b6cb4a29b70325b2b993d5926fe668) repos for their code which helped create the base of this repo. 
 
 # Setup
 Only tested on python3.6.
@@ -57,5 +55,22 @@ Then run:
 `python3 -m olfmlm.evaluate.main --exp_name [experiment name]`
 Where experiment name is the same as the model type above. If using a saved checkpoint instead of the best model, use the --checkpoint argument.
 
+## Citation
+If this code was useful, please cite the paper:
+```
+@inproceedings{aroca-ouellette-rudzicz-2020-losses,
+    title = "{O}n {L}osses for {M}odern {L}anguage {M}odels",
+    author = "Aroca-Ouellette, St{\'e}phane  and
+      Rudzicz, Frank",
+    booktitle = "Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)",
+    month = nov,
+    year = "2020",
+    address = "Online",
+    publisher = "Association for Computational Linguistics",
+    url = "https://www.aclweb.org/anthology/2020.emnlp-main.403",
+    doi = "10.18653/v1/2020.emnlp-main.403",
+    pages = "4970--4981",
+}
+```
 
 
